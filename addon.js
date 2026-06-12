@@ -2,147 +2,17 @@
 // ============================================================================
 // Jackett + TorrServer Stremio Addon
 // ============================================================================
-// Tìm torrent qua Jackett → Stream qua TorrServer (hoặc Stremio built-in)
-// Web UI config tại / — deploy lên HuggingFace Spaces
+// - Per-user config via Stremio built-in config UI
+// - Stream: search Jackett → return infoHash (built-in) or TorrServer URL
+// - Deploy: HuggingFace Spaces (Docker)
 // ============================================================================
 
-const fs = require('fs');
-const path = require('path');
 const express = require('express');
 const { addonBuilder, getRouter } = require('stremio-addon-sdk');
 
 // ============================================================================
-// 1. CONFIG MANAGEMENT
+// 1. MANIFEST với per-user config
 // ============================================================================
-const CONFIG_DIR = path.join(__dirname, 'data');
-const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json');
-
-function loadConfig() {
-  try {
-    if (fs.existsSync(CONFIG_PATH)) {
-      return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
-    }
-  } catch (e) {
-    console.error('Config load error:', e.message);
-  }
-
-  // Fallback: environment variables
-  return {
-    jackettUrl: process.env.JACKETT_URL || '',
-    jackettApiKey: process.env.JACKETT_API_KEY || '',
-    torrServerUrl: process.env.TORRSERVER_URL || '',
-    maxResults: parseInt(process.env.MAX_RESULTS || '5', 10),
-  };
-}
-
-function saveConfig(data) {
-  if (!fs.existsSync(CONFIG_DIR)) {
-    fs.mkdirSync(CONFIG_DIR, { recursive: true });
-  }
-  // Clean: only store what we need
-  const cleaned = {
-    jackettUrl: (data.jackettUrl || '').replace(/\/$/, ''),
-    jackettApiKey: data.jackettApiKey || '',
-    torrServerUrl: (data.torrServerUrl || '').replace(/\/$/, ''),
-    maxResults: Math.min(Math.max(parseInt(data.maxResults || '5', 10) || 5, 1), 20),
-  };
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(cleaned, null, 2), 'utf-8');
-  return cleaned;
-}
-
-// ============================================================================
-// 2. JACKETT API
-// ============================================================================
-
-/**
- * Search torrents via Jackett API
- * @param {object} config - { jackettUrl, jackettApiKey }
- * @param {string} imdbId - IMDb ID (e.g. tt1375666)
- * @param {string} query - Fallback search query
- * @returns {Promise<Array>} Sorted results by seeders desc
- */
-async function searchJackett(config, imdbId, query) {
-  const baseUrl = config.jackettUrl.replace(/\/$/, '');
-  const params = new URLSearchParams({ apikey: config.jackettApiKey });
-
-  // Use IMDb ID for precise match, fallback to text query
-  if (imdbId && /^tt\d+$/.test(imdbId)) {
-    params.set('imdbid', imdbId);
-  } else if (query) {
-    params.set('query', query);
-  } else {
-    return [];
-  }
-
-  const url = `${baseUrl}/api/v2.0/indexers/all/results?${params}`;
-  console.log(`[Jackett] Searching: ${imdbId || query}`);
-
-  const res = await fetch(url, {
-    signal: AbortSignal.timeout(20000), // 20s timeout
-    headers: { 'Accept': 'application/json' },
-  });
-
-  if (!res.ok) {
-    throw new Error(`Jackett HTTP ${res.status}: ${res.statusText}`);
-  }
-
-  const data = await res.json();
-  const results = data.Results || [];
-  console.log(`[Jackett] Found ${results.length} results`);
-
-  // Sort by seeders descending
-  return results.sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
-}
-
-// ============================================================================
-// 3. HELPERS
-// ============================================================================
-
-/**
- * Extract tracker URLs from a magnet URI
- */
-function extractTrackers(magnetUri) {
-  if (!magnetUri) return [];
-  const trackers = [];
-  try {
-    const qs = magnetUri.split('?')[1] || '';
-    const params = new URLSearchParams(qs);
-    params.forEach((value, key) => {
-      if (key === 'tr' && value) trackers.push(`tracker:${value}`);
-    });
-  } catch (e) { /* ignore */ }
-  return trackers;
-}
-
-/**
- * Guess file extension from category
- */
-function guessExtension(categoryDesc) {
-  if (!categoryDesc) return 'mkv';
-  const cat = categoryDesc.toLowerCase();
-  if (cat.includes('uhd') || cat.includes('4k') || cat.includes('2160p')) return 'mp4';
-  if (cat.includes('hd') || cat.includes('1080p') || cat.includes('720p')) return 'mp4';
-  if (cat.includes('audio') || cat.includes('music')) return 'mp3';
-  return 'mkv';
-}
-
-/**
- * Get IMDb ID from Stremio content ID
- * Handles: "tt1234567" -> "tt1234567"
- * Handles: "tt1234567:1:2" -> "tt1234567"
- */
-function extractIMDbId(id) {
-  if (!id) return '';
-  const parts = id.split(':');
-  const candidate = parts[0];
-  if (/^tt\d+$/.test(candidate)) return candidate;
-  return ''; // Not an IMDb ID
-}
-
-// ============================================================================
-// 4. STREMIO ADDON
-// ============================================================================
-
 const manifest = {
   id: 'com.jackett.torrents',
   version: '1.0.0',
@@ -152,40 +22,146 @@ const manifest = {
   types: ['movie', 'series'],
   idPrefixes: ['tt'],
   catalogs: [],
-  behaviorHints: {
-    configurationRequired: true,
-  },
+  behaviorHints: { configurable: true, configurationRequired: true },
+  // Per-user config — mỗi người tự điền trong Stremio, lưu ở client
+  config: [
+    {
+      key: 'jackettUrl',
+      type: 'text',
+      title: 'Jackett Server URL',
+      default: '',
+      required: true,
+    },
+    {
+      key: 'jackettApiKey',
+      type: 'text',
+      title: 'Jackett API Key',
+      default: '',
+      required: true,
+    },
+    {
+      key: 'torrServerUrl',
+      type: 'text',
+      title: 'TorrServer URL (optional)',
+      description: 'Để trống nếu muốn dùng Stremio built-in torrent client',
+      default: '',
+      required: false,
+    },
+    {
+      key: 'maxResults',
+      type: 'number',
+      title: 'Max results per query',
+      default: 5,
+    },
+  ],
 };
 
 const builder = new addonBuilder(manifest);
 
-// --- Stream Handler ---
-builder.defineStreamHandler(async ({ type, id }) => {
-  try {
-    const config = loadConfig();
+// ============================================================================
+// 2. HELPERS
+// ============================================================================
 
-    // Validate config
-    if (!config.jackettUrl || !config.jackettApiKey) {
-      console.log('[Stream] No config, returning empty');
+/**
+ * Search Jackett for torrents
+ * @param {object} cfg - { jackettUrl, jackettApiKey } từ config per-user
+ * @param {string} imdbId - IMDb ID (e.g. tt1375666)
+ * @returns {Promise<Array>} Sorted by seeders desc
+ */
+async function searchJackett(cfg, imdbId) {
+  const baseUrl = cfg.jackettUrl.replace(/\/$/, '');
+  const params = new URLSearchParams({ apikey: cfg.jackettApiKey, imdbid: imdbId });
+
+  const url = `${baseUrl}/api/v2.0/indexers/all/results?${params}`;
+  console.log(`[Jackett] Searching: ${imdbId}`);
+
+  const res = await fetch(url, {
+    signal: AbortSignal.timeout(20000),
+    headers: { Accept: 'application/json' },
+  });
+
+  if (!res.ok) throw new Error(`Jackett HTTP ${res.status}`);
+
+  const data = await res.json();
+  const results = data.Results || [];
+  console.log(`[Jackett] Found ${results.length} results`);
+
+  return results.sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
+}
+
+/**
+ * Parse tracker from magnet URI
+ */
+function extractTrackers(magnetUri) {
+  if (!magnetUri) return [];
+  const trackers = [];
+  try {
+    const params = new URLSearchParams(magnetUri.split('?')[1] || '');
+    params.forEach((v, k) => { if (k === 'tr' && v) trackers.push(`tracker:${v}`); });
+  } catch (e) { /* ignore */ }
+  return trackers;
+}
+
+/**
+ * Guess extension from category
+ */
+function guessExtension(cat) {
+  if (!cat) return 'mkv';
+  const c = cat.toLowerCase();
+  if (c.includes('uhd') || c.includes('4k') || c.includes('2160p')) return 'mp4';
+  if (c.includes('hd') || c.includes('1080p') || c.includes('720p')) return 'mp4';
+  if (c.includes('audio') || c.includes('music')) return 'mp3';
+  return 'mkv';
+}
+
+/**
+ * Extract IMDb ID from Stremio content ID
+ * "tt1234567:1:2" → "tt1234567"
+ */
+function extractIMDbId(id) {
+  if (!id) return '';
+  const m = id.match(/^(tt\d+)/);
+  return m ? m[1] : '';
+}
+
+/**
+ * Lấy config, ưu tiên per-user (từ Stremio), fallback env vars
+ */
+function resolveConfig(userConfig) {
+  const envJackett = process.env.JACKETT_URL || '';
+  const envApiKey = process.env.JACKETT_API_KEY || '';
+  const envTorr = process.env.TORRSERVER_URL || '';
+
+  // Luôn ưu tiên per-user config từ Stremio
+  return {
+    jackettUrl: (userConfig?.jackettUrl || envJackett).replace(/\/$/, ''),
+    jackettApiKey: userConfig?.jackettApiKey || envApiKey,
+    torrServerUrl: (userConfig?.torrServerUrl || envTorr).replace(/\/$/, ''),
+    maxResults: Math.min(Math.max(parseInt(userConfig?.maxResults || '5', 10) || 5, 1), 20),
+  };
+}
+
+// ============================================================================
+// 3. STREAM HANDLER
+// ============================================================================
+builder.defineStreamHandler(async ({ type, id, config: userConfig }) => {
+  try {
+    const cfg = resolveConfig(userConfig || {});
+
+    if (!cfg.jackettUrl || !cfg.jackettApiKey) {
+      console.log('[Stream] No Jackett config — cần config trong Stremio');
       return { streams: [] };
     }
 
     const imdbId = extractIMDbId(id);
-    if (!imdbId) {
-      console.log(`[Stream] Not an IMDb ID: ${id}`);
-      return { streams: [] };
-    }
+    if (!imdbId) return { streams: [] };
 
-    console.log(`[Stream] Request: ${type} ${imdbId}`);
-    const results = await searchJackett(config, imdbId, id);
+    console.log(`[Stream] ${type} ${imdbId}`);
+    const results = await searchJackett(cfg, imdbId);
 
-    if (!results || results.length === 0) {
-      console.log(`[Stream] No results for ${imdbId}`);
-      return { streams: [] };
-    }
+    if (!results || results.length === 0) return { streams: [] };
 
-    const maxResults = config.maxResults || 5;
-    const streams = results.slice(0, maxResults).map((r) => {
+    const streams = results.slice(0, cfg.maxResults).map((r) => {
       const label = `⬆${r.Seeders || 0} ${r.Title}`;
       const stream = {
         name: label,
@@ -200,12 +176,12 @@ builder.defineStreamHandler(async ({ type, id }) => {
         },
       };
 
-      // If TorrServer URL is configured, use HTTP stream instead
-      if (config.torrServerUrl) {
+      // Nếu có TorrServer → dùng HTTP stream thay vì infoHash
+      if (cfg.torrServerUrl) {
         delete stream.infoHash;
         delete stream.fileIdx;
         delete stream.sources;
-        stream.url = `${config.torrServerUrl}/stream?link=${encodeURIComponent(r.MagnetUri)}&index=1&play`;
+        stream.url = `${cfg.torrServerUrl}/stream?link=${encodeURIComponent(r.MagnetUri)}&index=1&play`;
         stream.title = label;
         stream.behaviorHints.notWebReady = false;
       }
@@ -213,8 +189,8 @@ builder.defineStreamHandler(async ({ type, id }) => {
       return stream;
     });
 
-    console.log(`[Stream] Returning ${streams.length} streams for ${imdbId}`);
-    return { streams, cacheMaxAge: 600 }; // 10 min cache
+    console.log(`[Stream] → ${streams.length} streams`);
+    return { streams, cacheMaxAge: 600 };
   } catch (err) {
     console.error('[Stream] Error:', err.message);
     return { streams: [] };
@@ -222,15 +198,15 @@ builder.defineStreamHandler(async ({ type, id }) => {
 });
 
 // ============================================================================
-// 5. WEB UI — Express App
+// 4. EXPRESS — Landing page + Stremio addon
 // ============================================================================
 
-const CONFIG_HTML = `<!DOCTYPE html>
+const LANDING_HTML = `<!DOCTYPE html>
 <html lang="vi">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Jackett Torrents - Cấu hình</title>
+  <title>Jackett Torrents - Stremio Addon</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -240,245 +216,101 @@ const CONFIG_HTML = `<!DOCTYPE html>
       min-height: 100vh;
       display: flex;
       justify-content: center;
-      align-items: flex-start;
-      padding: 40px 20px;
+      align-items: center;
+      padding: 20px;
     }
-    .container { max-width: 520px; width: 100%; }
-    .header { text-align: center; margin-bottom: 40px; }
-    .header h1 { font-size: 28px; color: #fff; margin-bottom: 4px; }
-    .header h1 span { color: #5b9cf5; }
-    .header p { color: #888; font-size: 14px; }
+    .container { max-width: 520px; width: 100%; text-align: center; }
+    .logo { margin-bottom: 40px; }
+    .logo h1 { font-size: 32px; color: #fff; margin-bottom: 4px; }
+    .logo h1 span { color: #5b9cf5; }
+    .logo p { color: #888; font-size: 14px; }
     .card {
       background: #1a1a1a;
       border: 1px solid #2a2a2a;
       border-radius: 12px;
       padding: 32px;
-      margin-bottom: 16px;
     }
-    .success-card {
-      background: #0d2818;
-      border: 1px solid #1a4a2a;
-      border-radius: 12px;
-      padding: 16px 24px;
-      margin-bottom: 16px;
-      color: #4ade80;
-      font-size: 14px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .success-card .icon { font-size: 20px; }
-    label {
-      display: block;
-      margin-top: 20px;
-      font-size: 13px;
-      font-weight: 600;
-      color: #aaa;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    label:first-child { margin-top: 0; }
-    input {
-      width: 100%;
-      padding: 12px 14px;
-      margin-top: 6px;
-      background: #0f0f0f;
-      border: 1px solid #333;
-      border-radius: 8px;
-      color: #fff;
-      font-size: 15px;
-      transition: border-color 0.2s;
-    }
-    input:focus { border-color: #5b9cf5; outline: none; }
-    input::placeholder { color: #555; }
-    .hint { font-size: 12px; color: #666; margin-top: 4px; }
-    .btn {
-      margin-top: 28px;
-      padding: 14px 0;
-      width: 100%;
-      background: #5b9cf5;
-      color: #fff;
-      border: none;
-      border-radius: 8px;
-      font-size: 16px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-    .btn:hover { background: #4a8be4; }
-    .btn-secondary {
-      background: transparent;
-      border: 1px solid #333;
-      color: #ccc;
-      margin-top: 12px;
-    }
-    .btn-secondary:hover { background: #222; }
-    .install-box {
-      margin-top: 24px;
-      padding: 16px;
-      background: #0f1a2f;
-      border: 1px solid #1a2a4a;
-      border-radius: 8px;
-      text-align: center;
-    }
-    .install-box p { color: #888; font-size: 13px; margin-bottom: 8px; }
-    .install-box .url {
-      color: #5b9cf5;
-      font-size: 12px;
-      word-break: break-all;
+    .manifest-url {
       background: #0a0a1a;
-      padding: 8px 12px;
-      border-radius: 6px;
       border: 1px solid #1a2a4a;
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin: 16px 0;
+      font-size: 13px;
+      color: #5b9cf5;
+      word-break: break-all;
       user-select: all;
     }
-    .install-box .btn-install {
+    .btn {
       display: inline-block;
-      margin-top: 12px;
-      padding: 10px 24px;
+      padding: 14px 32px;
       background: #5b9cf5;
       color: #fff;
       text-decoration: none;
       border-radius: 8px;
-      font-size: 14px;
+      font-size: 16px;
       font-weight: 600;
+      transition: background 0.2s;
+      margin-top: 8px;
     }
-    .install-box .btn-install:hover { background: #4a8be4; }
-    .footer { text-align: center; color: #444; font-size: 12px; margin-top: 24px; }
-    .env-note {
-      background: #1a1a2a;
-      border: 1px solid #2a2a4a;
-      border-radius: 8px;
-      padding: 12px 16px;
-      margin-bottom: 16px;
-      font-size: 13px;
-      color: #aaa;
+    .btn:hover { background: #4a8be4; }
+    .steps {
+      text-align: left;
+      margin-top: 24px;
+      padding-top: 24px;
+      border-top: 1px solid #2a2a2a;
     }
-    .env-note code {
-      background: #0a0a1a;
-      padding: 2px 6px;
-      border-radius: 4px;
-      font-size: 12px;
-      color: #5b9cf5;
-    }
+    .steps h3 { color: #fff; margin-bottom: 12px; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .steps ol { padding-left: 20px; color: #aaa; font-size: 13px; line-height: 1.8; }
+    .steps ol li strong { color: #e0e0e0; }
+    .footer { color: #444; font-size: 12px; margin-top: 24px; }
   </style>
 </head>
 <body>
   <div class="container">
-    <div class="header">
+    <div class="logo">
       <h1>⚡ Jackett <span>Torrents</span></h1>
       <p>Stremio Addon — Streaming torrents qua Jackett & TorrServer</p>
     </div>
-
-    {{SUCCESS_MSG}}
-
-    <div class="env-note">
-      💡 Bạn cũng có thể cấu hình qua biến môi trường:
-      <code>JACKETT_URL</code>, <code>JACKETT_API_KEY</code>, <code>TORRSERVER_URL</code>
-    </div>
-
     <div class="card">
-      <form method="POST" action="/save-config">
-        <label>🔗 Jackett Server URL</label>
-        <input type="url" name="jackettUrl" value="{{JACKETT_URL}}" placeholder="http://192.168.1.100:9117" required>
-        <div class="hint">Địa chỉ server Jackett (VD: http://192.168.1.100:9117)</div>
+      <p style="color:#aaa;margin-bottom:8px;">📦 Addon Manifest URL:</p>
+      <div class="manifest-url">{{MANIFEST_URL}}</div>
+      <a class="btn" href="{{STREMIO_LINK}}" target="_blank">🚀 Mở trong Stremio</a>
 
-        <label>🔑 Jackett API Key</label>
-        <input type="text" name="jackettApiKey" value="{{JACKETT_API_KEY}}" placeholder="abc123def456..." required>
-        <div class="hint">API key từ Jackett Web UI (trang Dashboard)</div>
-
-        <label>📡 TorrServer URL (tùy chọn)</label>
-        <input type="url" name="torrServerUrl" value="{{TORRSERVER_URL}}" placeholder="http://192.168.1.100:8090">
-        <div class="hint">Để trống nếu muốn dùng Stremio built-in torrent client</div>
-
-        <label>📊 Số kết quả tối đa</label>
-        <input type="number" name="maxResults" value="{{MAX_RESULTS}}" min="1" max="20">
-        <div class="hint">Số torrent hiển thị trong Stremio (1-20)</div>
-
-        <button type="submit" class="btn">💾 Lưu cấu hình</button>
-      </form>
+      <div class="steps">
+        <h3>📋 Hướng dẫn cài đặt</h3>
+        <ol>
+          <li><strong>Bước 1:</strong> Click nút "Mở trong Stremio" bên trên</li>
+          <li><strong>Bước 2:</strong> Trong Stremio → chọn Install</li>
+          <li><strong>Bước 3:</strong> Vào Settings của addon → điền <strong>Jackett URL</strong> + <strong>API Key</strong></li>
+          <li><strong>Bước 4:</strong> (Tùy chọn) Điền TorrServer URL nếu muốn stream HTTP</li>
+          <li><strong>Bước 5:</strong> Tìm phim và xem! 🎬</li>
+        </ol>
+      </div>
     </div>
-
-    {{INSTALL_SECTION}}
-    
-    <div class="footer">
-      Jackett Torrents Addon v1.0.0
-    </div>
+    <div class="footer">Jackett Torrents Addon v1.0.0</div>
   </div>
 </body>
 </html>`;
 
-/**
- * Render the config HTML with values
- */
-function renderConfigHtml(config, success, manifestUrl) {
-  let html = CONFIG_HTML
-    .replace(/{{JACKETT_URL}}/g, escapeHtml(config.jackettUrl || ''))
-    .replace(/{{JACKETT_API_KEY}}/g, escapeHtml(config.jackettApiKey || ''))
-    .replace(/{{TORRSERVER_URL}}/g, escapeHtml(config.torrServerUrl || ''))
-    .replace(/{{MAX_RESULTS}}/g, config.maxResults || '5');
-
-  // Success message
-  if (success) {
-    html = html.replace(
-      '{{SUCCESS_MSG}}',
-      '<div class="success-card"><span class="icon">✅</span> Cấu hình đã được lưu thành công!</div>'
-    );
-  } else {
-    html = html.replace('{{SUCCESS_MSG}}', '');
-  }
-
-  // Install section (only when configured)
-  if (manifestUrl) {
-    const stremioInstallUrl = `stremio://${manifestUrl.replace(/^https?:\/\//, '')}`;
-    html = html.replace(
-      '{{INSTALL_SECTION}}',
-      `<div class="install-box">
-        <p>📦 Addon đã sẵn sàng! Thêm vào Stremio:</p>
-        <div class="url">${escapeHtml(manifestUrl)}</div>
-        <a class="btn-install" href="${escapeHtml(stremioInstallUrl)}" target="_blank">🚀 Mở trong Stremio</a>
-        <p style="margin-top:8px;font-size:12px;color:#666;">
-          Hoặc copy URL trên → Stremio → Addons → Install from URL
-        </p>
-      </div>`
-    );
-  } else {
-    html = html.replace('{{INSTALL_SECTION}}', '');
-  }
-
-  return html;
-}
-
-function escapeHtml(str) {
-  if (!str) return '';
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+function renderLandingPage(baseUrl) {
+  const manifestUrl = `${baseUrl}/manifest.json`;
+  const stremioLink = `stremio://${manifestUrl.replace(/^https?:\/\//, '')}`;
+  return LANDING_HTML
+    .replace('{{MANIFEST_URL}}', manifestUrl)
+    .replace('{{STREMIO_LINK}}', stremioLink);
 }
 
 // --- Express Setup ---
 const app = express();
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
-// Config page
+// Landing page
 app.get('/', (req, res) => {
-  const config = loadConfig();
-  const hasConfig = !!(config.jackettUrl && config.jackettApiKey);
   const baseUrl = `${req.protocol}://${req.get('host')}`;
-  const manifestUrl = hasConfig ? `${baseUrl}/manifest.json` : '';
-  res.send(renderConfigHtml(config, false, manifestUrl));
+  res.send(renderLandingPage(baseUrl));
 });
 
-// Save config
-app.post('/save-config', (req, res) => {
-  const config = saveConfig(req.body);
-  const baseUrl = `${req.protocol}://${req.get('host')}`;
-  const manifestUrl = `${baseUrl}/manifest.json`;
-  res.send(renderConfigHtml(config, true, manifestUrl));
-});
+// (Config UI hoàn toàn do Stremio xử lý — /configure auto-generated bởi SDK)
 
 // Health check
 app.get('/health', (req, res) => {
@@ -486,10 +318,10 @@ app.get('/health', (req, res) => {
 });
 
 // ============================================================================
-// 6. STARTUP
+// 5. STARTUP
 // ============================================================================
 
-// Mount Stremio addon router (handles /manifest.json, /stream/*, etc.)
+// Mount Stremio addon router (xử lý /manifest.json, /stream/*, /configure)
 app.use(getRouter(builder.getInterface()));
 
 const PORT = parseInt(process.env.PORT || '7860', 10);
@@ -498,8 +330,9 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log('  Jackett + TorrServer Stremio Addon');
   console.log('='.repeat(50));
   console.log(`  Server:   http://0.0.0.0:${PORT}`);
-  console.log(`  Config:   http://0.0.0.0:${PORT}/`);
+  console.log(`  Landing:  http://0.0.0.0:${PORT}/`);
   console.log(`  Manifest: http://0.0.0.0:${PORT}/manifest.json`);
+  console.log(`  Config:   http://0.0.0.0:${PORT}/configure`);
   console.log(`  Health:   http://0.0.0.0:${PORT}/health`);
   console.log('='.repeat(50));
 });
