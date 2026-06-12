@@ -1338,7 +1338,7 @@ async function testMediaFusion() {
   };
   for (const [id, val] of Object.entries(fields)) {
     const el = document.getElementById(id);
-    if (el) el.value = val;
+    if (el) el.value = val != null ? val : '';
   }
   for (const [fieldId, toggleId] of Object.entries(toggleMap)) {
     const toggle = document.getElementById(toggleId);
