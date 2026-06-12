@@ -1314,6 +1314,37 @@ async function testMediaFusion() {
     el.className = 'test-result show error'; el.textContent = '❌ ' + e.message;
   }
 }
+// === Pre-fill form from URL config (edit existing config) ===
+(function() {
+  if (!window.__CONFIG__) return;
+  const c = window.__CONFIG__;
+  const fields = {
+    jackettUrl: c.jackettUrl, jackettApiKey: c.jackettApiKey,
+    prowlarrUrl: c.prowlarrUrl, prowlarrApiKey: c.prowlarrApiKey,
+    torrentioUrl: c.torrentioUrl, torrentioConfig: c.torrentioConfig,
+    cometUrl: c.cometUrl,
+    meteorUrl: c.meteorUrl,
+    jacredUrl: c.jacredUrl, jacredApiKey: c.jacredApiKey,
+    mediafusionUrl: c.mediafusionUrl,
+    torrServerUrl: c.torrServerUrl, torrServerUser: c.torrServerUser,
+    torrServerPassword: c.torrServerPassword, torrServerType: c.torrServerType || 'official',
+    maxResults: c.maxResults || 5,
+  };
+  const toggleMap = {
+    jackettUrl: 'jackettToggle', prowlarrUrl: 'prowlarrToggle',
+    torrentioUrl: 'torrentioToggle', cometUrl: 'cometToggle',
+    meteorUrl: 'meteorToggle', jacredUrl: 'jacredToggle',
+    mediafusionUrl: 'mediafusionToggle',
+  };
+  for (const [id, val] of Object.entries(fields)) {
+    const el = document.getElementById(id);
+    if (el) el.value = val;
+  }
+  for (const [fieldId, toggleId] of Object.entries(toggleMap)) {
+    const toggle = document.getElementById(toggleId);
+    if (toggle && fields[fieldId]) toggle.classList.add('active');
+  }
+})();
 </script>
 </body>
 </html>`;
@@ -1370,12 +1401,30 @@ app.get('/stream/:type/:id.json', async (req, res) => {
 });
 
 // ---- Config page ----
-app.get('/configure', (req, res) => {
-  res.type('html').send(WEB_HTML);
+function serveConfigPage(req, res, initialConfig) {
+  let html = WEB_HTML;
+  if (initialConfig) {
+    // Inject initial config as JSON for client JS to pre-fill
+    const script = `<script>window.__CONFIG__ = ${JSON.stringify(initialConfig)};</script>`;
+    html = html.replace('</head>', script + '</head>');
+  }
+  res.type('html').send(html);
+}
+
+app.get('/configure', (req, res) => serveConfigPage(req, res, null));
+app.get('/configuration', (req, res) => serveConfigPage(req, res, null));
+// Edit existing config — decode and pre-fill form
+app.get('/:config/configure', (req, res) => {
+  try {
+    const config = decodeConfig(req.params.config);
+    serveConfigPage(req, res, config);
+  } catch { serveConfigPage(req, res, null); }
 });
-// Stremio "Configure" button opens this (config: '/configuration' in manifest)
-app.get('/configuration', (req, res) => {
-  res.type('html').send(WEB_HTML);
+app.get('/:config/configuration', (req, res) => {
+  try {
+    const config = decodeConfig(req.params.config);
+    serveConfigPage(req, res, config);
+  } catch { serveConfigPage(req, res, null); }
 });
 app.get('/', (req, res) => res.redirect('/configure'));
 
