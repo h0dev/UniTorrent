@@ -875,8 +875,8 @@ const WEB_HTML = `<!DOCTYPE html>
         </div>
         <div class="form-group">
           <label>Torrentio URL <span class="required">*</span></label>
-          <input type="url" id="torrentioUrl" placeholder="https://torrentio.strem.fun">
-          <div class="hint">Default: <code>https://torrentio.strem.fun</code>. Use a self-hosted instance or ElfHosted.</div>
+          <input type="url" id="torrentioUrl" value="https://torrentio.strem.fun">
+          <div class="hint"><code>https://torrentio.strem.fun</code> — Torrentio manifest link. Use self-hosted or ElfHosted instance.</div>
         </div>
         <div class="form-group">
           <label>Torrentio Config String (optional)</label>
@@ -926,8 +926,8 @@ const WEB_HTML = `<!DOCTYPE html>
         </div>
         <div class="form-group">
           <label>Meteor URL <span class="required">*</span></label>
-          <input type="url" id="meteorUrl" placeholder="https://meteorfortheweebs.midnightignite.me">
-          <div class="hint">Default: <code>https://meteorfortheweebs.midnightignite.me</code></div>
+          <input type="url" id="meteorUrl" value="https://meteorfortheweebs.midnightignite.me">
+          <div class="hint"><code>https://meteorfortheweebs.midnightignite.me</code> — Meteor manifest link</div>
         </div>
         <div style="display:flex;gap:8px">
           <button class="btn btn-secondary btn-sm" onclick="testMeteor()">🔄 Test</button>
@@ -939,12 +939,12 @@ const WEB_HTML = `<!DOCTYPE html>
     <!-- Jacred -->
     <div class="card">
       <div class="card-header">
-        <h3>🔷 Jacred</h3>
+        <h3>💎 Jacred</h3>
         <span class="badge" id="jacredBadge">Not configured</span>
       </div>
       <div class="provider-card">
         <div class="provider-header">
-          <span class="provider-name"><span class="icon">🔷</span> Jacred (Jackett-compatible)</span>
+          <span class="provider-name"><span class="icon">💎</span> Jacred (Jackett-compatible)</span>
           <label class="toggle" id="jacredToggle">
             <input type="checkbox" hidden id="jacredEnabled">
           </label>
@@ -979,8 +979,8 @@ const WEB_HTML = `<!DOCTYPE html>
         </div>
         <div class="form-group">
           <label>MediaFusion URL <span class="required">*</span></label>
-          <input type="url" id="mediafusionUrl" placeholder="https://mediafusion.elfhosted.com">
-          <div class="hint">Public: <code>https://mediafusion.elfhosted.com</code>. Or self-host from <a href="https://github.com/mhdzumair/MediaFusion" target="_blank">GitHub</a>.</div>
+          <input type="url" id="mediafusionUrl" value="https://mediafusion.elfhosted.com">
+          <div class="hint"><code>https://mediafusion.elfhosted.com</code> — MediaFusion manifest link. Or <a href="https://github.com/mhdzumair/MediaFusion" target="_blank">self-host</a>.</div>
         </div>
         <div style="display:flex;gap:8px">
           <button class="btn btn-secondary btn-sm" onclick="testMediaFusion()">🔄 Test</button>
@@ -1293,6 +1293,7 @@ async function testMediaFusion() {
 // ============================================================================
 
 const app = express();
+app.set('trust proxy', true);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
