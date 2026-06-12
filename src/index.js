@@ -10,22 +10,134 @@ const crypto = require('crypto');
 const express = require('express');
 
 // ============================================================================
-// 1. MANIFEST
+// 1. DEBUG & CONFIG
+// ============================================================================
+const DEBUG = process.env.DEBUG === 'true' || true;
+const log = (...args) => { if (DEBUG) console.log('[UniTorrent]', ...args); };
+const err = (...args) => console.error('[UniTorrent:ERR]', ...args);
+
+// ============================================================================
+// 2. MANIFEST
 // ============================================================================
 const MANIFEST = {
-  id: 'com.jackett.prowlarr.torrentio',
+  id: 'com.unitorrent.addon',
   version: '2.0.0',
   name: 'UniTorrent',
-  description: 'Multi-provider torrent addon: Jackett + Prowlarr + Torrentio',
+  description: 'Multi-provider: Jackett + Prowlarr + Torrentio + Comet + Meteor + Jacred + MediaFusion → TorrServer',
   resources: ['stream'],
   types: ['movie', 'series'],
   idPrefixes: ['tt'],
   catalogs: [],
   behaviorHints: {},
+  config: [
+    {
+      key: 'jackettUrl',
+      type: 'text',
+      default: '',
+      title: 'Jackett URL',
+      description: 'http://192.168.1.100:9117',
+    },
+    {
+      key: 'jackettApiKey',
+      type: 'text',
+      default: '',
+      title: 'Jackett API Key',
+      description: 'From Jackett Dashboard',
+    },
+    {
+      key: 'prowlarrUrl',
+      type: 'text',
+      default: '',
+      title: 'Prowlarr URL',
+      description: 'http://192.168.1.100:9696',
+    },
+    {
+      key: 'prowlarrApiKey',
+      type: 'text',
+      default: '',
+      title: 'Prowlarr API Key',
+      description: 'Settings → General → API Key',
+    },
+    {
+      key: 'torrentioUrl',
+      type: 'text',
+      default: 'https://torrentio.strem.fun',
+      title: 'Torrentio URL',
+    },
+    {
+      key: 'torrentioConfig',
+      type: 'text',
+      default: '',
+      title: 'Torrentio Config String',
+    },
+    {
+      key: 'cometUrl',
+      type: 'text',
+      default: '',
+      title: 'Comet URL',
+      description: 'https://comet.feels.legal',
+    },
+    {
+      key: 'meteorUrl',
+      type: 'text',
+      default: 'https://meteorfortheweebs.midnightignite.me',
+      title: 'Meteor URL',
+    },
+    {
+      key: 'jacredUrl',
+      type: 'text',
+      default: '',
+      title: 'Jacred URL',
+      description: 'http://192.168.1.100:9120',
+    },
+    {
+      key: 'jacredApiKey',
+      type: 'text',
+      default: '',
+      title: 'Jacred API Key',
+    },
+    {
+      key: 'mediafusionUrl',
+      type: 'text',
+      default: 'https://mediafusion.elfhosted.com',
+      title: 'MediaFusion URL',
+    },
+    {
+      key: 'torrServerUrl',
+      type: 'text',
+      default: '',
+      title: 'TorrServer URL',
+      description: 'http://192.168.1.100:8090',
+    },
+    {
+      key: 'torrServerUser',
+      type: 'text',
+      default: '',
+      title: 'TorrServer Username',
+    },
+    {
+      key: 'torrServerPassword',
+      type: 'password',
+      default: '',
+      title: 'TorrServer Password',
+    },
+    {
+      key: 'torrServerType',
+      type: 'text',
+      default: 'official',
+      title: 'TorrServer Type (official/fork)',
+    },
+    {
+      key: 'maxResults',
+      type: 'number',
+      default: 5,
+      title: 'Max Results',
+    },
+  ],
 };
 
 // ============================================================================
-// 2. CONFIG ENCODING
+// 3. CONFIG ENCODING
 // ============================================================================
 // Compact format to keep base64 short:
 // {
@@ -120,7 +232,7 @@ function decodeConfig(b64) {
 function generateUUID() { return crypto.randomUUID(); }
 
 // ============================================================================
-// 3. PROVIDER SEARCHERS
+// 4. PROVIDER SEARCHERS
 // ============================================================================
 
 function extractIMDbId(id) {
@@ -314,31 +426,47 @@ async function searchJacred(cfg, imdbId) {
 }
 
 // ============================================================================
-// 4. STREAM HANDLER (multi-provider)
+// 5. STREAM HANDLER (multi-provider)
 // ============================================================================
 async function handleStream(config, type, id) {
   try {
     const imdbId = extractIMDbId(id);
-    if (!imdbId) return { streams: [] };
-    console.log(`[Stream] ${type} ${imdbId}`);
+    if (!imdbId) {
+      log(`No IMDb ID in ${id}`);
+      return { streams: [] };
+    }
+    log(`Stream request: ${type} ${imdbId} | id=${id}`);
 
     // Query all providers in parallel
     const promises = [];
-    if (config.jackettUrl) promises.push(searchJackett(config, imdbId));
-    if (config.prowlarrUrl) promises.push(searchProwlarr(config, imdbId, type));
-    if (config.torrentioUrl) promises.push(searchTorrentio(config, type, id));
-    if (config.cometUrl) promises.push(searchComet(config, type, id));
-    if (config.meteorUrl) promises.push(searchMeteor(config, type, id));
-    if (config.jacredUrl) promises.push(searchJacred(config, imdbId));
-    if (config.mediafusionUrl) promises.push(searchMediaFusion(config, type, id));
+    if (config.jackettUrl) { log(`  + Jackett: ${config.jackettUrl}`); promises.push(searchJackett(config, imdbId)); }
+    if (config.prowlarrUrl) { log(`  + Prowlarr: ${config.prowlarrUrl}`); promises.push(searchProwlarr(config, imdbId, type)); }
+    if (config.torrentioUrl) { log(`  + Torrentio: ${config.torrentioUrl}`); promises.push(searchTorrentio(config, type, id)); }
+    if (config.cometUrl) { log(`  + Comet: ${config.cometUrl}`); promises.push(searchComet(config, type, id)); }
+    if (config.meteorUrl) { log(`  + Meteor: ${config.meteorUrl}`); promises.push(searchMeteor(config, type, id)); }
+    if (config.jacredUrl) { log(`  + Jacred: ${config.jacredUrl}`); promises.push(searchJacred(config, imdbId)); }
+    if (config.mediafusionUrl) { log(`  + MediaFusion: ${config.mediafusionUrl}`); promises.push(searchMediaFusion(config, type, id)); }
 
-    if (promises.length === 0) return { streams: [] };
+    if (promises.length === 0) {
+      log(`  No providers configured → empty`);
+      return { streams: [] };
+    }
 
-    const results = (await Promise.allSettled(promises))
-      .filter(r => r.status === 'fulfilled')
-      .flatMap(r => r.value);
+    const settled = await Promise.allSettled(promises);
+    const results = [];
+    for (const r of settled) {
+      if (r.status === 'fulfilled') {
+        results.push(...r.value);
+        log(`  ✓ ${r.value.length || 0} results from a provider`);
+      } else {
+        err(`  ✗ Provider error: ${r.reason?.message || r.reason}`);
+      }
+    }
 
-    if (results.length === 0) return { streams: [] };
+    if (results.length === 0) {
+      log(`  All providers returned 0 results`);
+      return { streams: [] };
+    }
 
     // Dedup by infoHash
     const seen = new Set();
@@ -356,21 +484,24 @@ async function handleStream(config, type, id) {
     const streams = unique.slice(0, maxResults).map(r => {
       // If TorrServer configured, route EVERYTHING through TorrServer
       if (config.torrServerUrl) {
-        return buildStreamEntry(r, config);
+        const s = buildStreamEntry(r, config);
+        log(`  → TorrServer: ${s.url?.slice(0, 100)}...`);
+        return s;
       }
       // Proxy-style providers (Torrentio, Comet, Meteor, MediaFusion) — pass through raw stream format
       if ((r._provider === 'Torrentio' || r._provider === 'Comet' || r._provider === 'Meteor' || r._provider === 'MediaFusion') && r._rawStream) {
         const s = { ...r._rawStream };
         s.name = `[${r._provider}] ${s.name || ''}`;
+        log(`  → Proxy pass: ${r._provider} infoHash=${s.infoHash?.slice(0, 12)}...`);
         return s;
       }
       return buildStreamEntry(r, config);
     });
 
-    console.log(`[Stream] → ${streams.length} streams (from ${results.length} total, ${unique.length} unique)`);
+    log(`  → ${streams.length} streams returned (${results.length} raw, ${unique.length} unique)`);
     return { streams, cacheMaxAge: 600 };
-  } catch (err) {
-    console.error('[Stream] Error:', err.message);
+  } catch (err_) {
+    err(`Stream error: ${err_.message}`);
     return { streams: [] };
   }
 }
@@ -1304,6 +1435,41 @@ app.use((req, res, next) => {
   next();
 });
 
+// ---- Helper: build config from Stremio query params (native config UI) ----
+function configFromQuery(q) {
+  return {
+    jackettUrl: q.jackettUrl || '',
+    jackettApiKey: q.jackettApiKey || '',
+    prowlarrUrl: q.prowlarrUrl || '',
+    prowlarrApiKey: q.prowlarrApiKey || '',
+    torrentioUrl: q.torrentioUrl || '',
+    torrentioConfig: q.torrentioConfig || '',
+    cometUrl: q.cometUrl || '',
+    meteorUrl: q.meteorUrl || '',
+    jacredUrl: q.jacredUrl || '',
+    jacredApiKey: q.jacredApiKey || '',
+    mediafusionUrl: q.mediafusionUrl || '',
+    torrServerUrl: q.torrServerUrl || '',
+    torrServerUser: q.torrServerUser || '',
+    torrServerPassword: q.torrServerPassword || '',
+    torrServerType: q.torrServerType || 'official',
+    maxResults: parseInt(q.maxResults || '5', 10) || 5,
+  };
+}
+
+// ---- Clean routes for Stremio native config ----
+// Manifest (no embedded config — Stremio shows config form from manifest.config)
+app.get('/manifest.json', (req, res) => {
+  res.json(MANIFEST);
+});
+// Stream search with config from query params (Stremio passes config values)
+app.get('/stream/:type/:id.json', async (req, res) => {
+  const cfg = configFromQuery(req.query);
+  log(`Clean stream: ${req.params.type} ${req.params.id} from query config`);
+  const result = await handleStream(cfg, req.params.type, req.params.id);
+  res.json(result);
+});
+
 // ---- Config page ----
 app.get('/configure', (req, res) => {
   res.type('html').send(WEB_HTML);
@@ -1348,8 +1514,8 @@ app.post('/api/generate', (req, res) => {
 app.get('/api/test/jackett', async (req, res) => {
   try {
     const { url, key } = req.query;
-    const r = await fetch(`${url.replace(/\/$/, '')}/api/v2.0/indexers?configured=true`, {
-      headers: { Accept: 'application/json' },
+    if (!url || !key) { res.json({ ok: false, message: 'Missing URL or API Key' }); return; }
+    const r = await fetch(`${url.replace(/\/$/, '')}/api/v2.0/indexers?configured=true&apikey=${encodeURIComponent(key)}`, {
       signal: AbortSignal.timeout(10000),
     });
     if (!r.ok) { res.json({ ok: false, message: `HTTP ${r.status}` }); return; }
@@ -1414,8 +1580,8 @@ app.get('/api/test/meteor', async (req, res) => {
 app.get('/api/test/jacred', async (req, res) => {
   try {
     const { url, key } = req.query;
-    const r = await fetch(`${url.replace(/\/$/, '')}/api/v2.0/indexers?configured=true`, {
-      headers: { Accept: 'application/json' },
+    if (!url || !key) { res.json({ ok: false, message: 'Missing URL or API Key' }); return; }
+    const r = await fetch(`${url.replace(/\/$/, '')}/api/v2.0/indexers?configured=true&apikey=${encodeURIComponent(key)}`, {
       signal: AbortSignal.timeout(10000),
     });
     if (!r.ok) { res.json({ ok: false, message: `HTTP ${r.status}` }); return; }
