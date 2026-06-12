@@ -2,7 +2,7 @@
 // ============================================================================
 // UniTorrent — Multi-Provider Stremio Addon
 // ============================================================================
-// Providers: Jackett, Prowlarr, Torrentio, Comet, Meteor, Jacred, MediaFusion
+// Providers: Jackett, Prowlarr, Torrentio, Comet, Jacred, MediaFusion
 // Config embedded in URL (base64) — TorrServer HTTP streaming support
 // ============================================================================
 
@@ -23,7 +23,7 @@ const MANIFEST = {
   id: 'com.unitorrent.addon',
   version: '2.0.0',
   name: 'UniTorrent',
-  description: 'Multi-provider: Jackett + Prowlarr + Torrentio + Comet + Meteor + Jacred + MediaFusion → TorrServer',
+  description: 'Multi-provider: Jackett + Prowlarr + Torrentio + Comet + Jacred + MediaFusion → TorrServer',
   resources: ['stream'],
   types: ['movie', 'series'],
   idPrefixes: ['tt'],
@@ -44,7 +44,6 @@ const MANIFEST = {
 //   p: { u: "prowlarrUrl", k: "prowlarrApiKey" },
 //   t: { u: "torrentioUrl", c: "torrentioConfigString" },
 //   o: { u: "cometUrl" },
-//   r: { u: "meteorUrl" },
 //   a: { u: "jacredUrl", k: "jacredApiKey" },
 //   f: { u: "mediafusionUrl" },
 //   s: { u: "torrServerUrl", a: "user:pass", t: "official|fork" },
@@ -56,7 +55,6 @@ function encodeConfig(config) {
   if (config.prowlarrUrl) c.p = { u: config.prowlarrUrl.replace(/\/$/, ''), k: config.prowlarrApiKey || '' };
   if (config.torrentioEnabled && config.torrentioUrl) c.t = { u: config.torrentioUrl.replace(/\/$/, ''), c: config.torrentioConfig || '' };
   if (config.cometUrl) c.o = { u: config.cometUrl.replace(/\/$/, '') };
-  if (config.meteorUrl) c.r = { u: config.meteorUrl.replace(/\/$/, '') };
   if (config.jacredUrl) c.a = { u: config.jacredUrl.replace(/\/$/, ''), k: config.jacredApiKey || '' };
   if (config.mediafusionUrl) c.f = { u: config.mediafusionUrl.replace(/\/$/, '') };
   if (config.torrServerUrl) {
@@ -87,11 +85,6 @@ function decodeConfig(b64) {
       else if (d.t.e) { cfg.torrentioUrl = 'https://torrentio.strem.fun'; cfg.torrentioConfig = d.t.c || ''; }
     }
     if (d.o && d.o.u) { cfg.cometUrl = d.o.u; }
-    // Meteor: old format { e } or new format { u }
-    if (d.r) {
-      if (d.r.u) { cfg.meteorUrl = d.r.u; }
-      else if (d.r.e) { cfg.meteorUrl = 'https://meteorfortheweebs.midnightignite.me'; }
-    }
     if (d.a && d.a.u) { cfg.jacredUrl = d.a.u; cfg.jacredApiKey = d.a.k || ''; }
     if (d.f && d.f.u) { cfg.mediafusionUrl = d.f.u; }
     if (d.s) {
@@ -116,7 +109,6 @@ function decodeConfig(b64) {
       torrentioUrl: process.env.TORRENTIO_URL || 'https://torrentio.strem.fun',
       torrentioConfig: process.env.TORRENTIO_CONFIG || '',
       cometUrl: process.env.COMET_URL || '',
-      meteorUrl: process.env.METEOR_URL || 'https://meteorfortheweebs.midnightignite.me',
       jacredUrl: process.env.JACRED_URL || '',
       jacredApiKey: process.env.JACRED_API_KEY || '',
       mediafusionUrl: process.env.MEDIAFUSION_URL || '',
@@ -274,24 +266,6 @@ async function searchComet(cfg, type, id) {
   }));
 }
 
-// ---- Meteor (public or custom instance) ----
-async function searchMeteor(cfg, type, id) {
-  if (!cfg.meteorUrl) return [];
-  const url = `${cfg.meteorUrl.replace(/\/+$/, '')}/stream/${type}/${id}.json`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
-  if (!res.ok) throw new Error(`Meteor HTTP ${res.status}`);
-  const data = await res.json();
-  return (data.streams || []).filter(s => s.infoHash || s.url).map(s => ({
-    Title: (s.title || s.name || '').replace(/\n/g, ' ').trim(),
-    Seeders: parseInt((s.name || '').match(/👤\s*(\d+)/)?.[1] || '0', 10),
-    Size: s.behaviorHints?.videoSize || 0,
-    InfoHash: s.infoHash || '',
-    MagnetUri: '',
-    CategoryDesc: '',
-    _provider: 'Meteor',
-    _rawStream: s,
-  }));
-}
 
 // ---- MediaFusion ----
 async function searchMediaFusion(cfg, type, id) {
@@ -342,7 +316,6 @@ async function handleStream(config, type, id) {
     if (config.prowlarrUrl) { log(`  + Prowlarr: ${config.prowlarrUrl}`); promises.push(searchProwlarr(config, imdbId, type)); }
     if (config.torrentioUrl) { log(`  + Torrentio: ${config.torrentioUrl}`); promises.push(searchTorrentio(config, type, id)); }
     if (config.cometUrl) { log(`  + Comet: ${config.cometUrl}`); promises.push(searchComet(config, type, id)); }
-    if (config.meteorUrl) { log(`  + Meteor: ${config.meteorUrl}`); promises.push(searchMeteor(config, type, id)); }
     if (config.jacredUrl) { log(`  + Jacred: ${config.jacredUrl}`); promises.push(searchJacred(config, imdbId)); }
     if (config.mediafusionUrl) { log(`  + MediaFusion: ${config.mediafusionUrl}`); promises.push(searchMediaFusion(config, type, id)); }
 
@@ -387,8 +360,8 @@ async function handleStream(config, type, id) {
         log(`  → TorrServer: ${s.url?.slice(0, 100)}...`);
         return s;
       }
-      // Proxy-style providers (Torrentio, Comet, Meteor, MediaFusion) — pass through raw stream format
-      if ((r._provider === 'Torrentio' || r._provider === 'Comet' || r._provider === 'Meteor' || r._provider === 'MediaFusion') && r._rawStream) {
+      // Proxy-style providers (Torrentio, Comet, MediaFusion) — pass through raw stream format
+      if ((r._provider === 'Torrentio' || r._provider === 'Comet' || r._provider === 'MediaFusion') && r._rawStream) {
         const s = { ...r._rawStream };
         s.name = `[${r._provider}] ${s.name || ''}`;
         log(`  → Proxy pass: ${r._provider} infoHash=${s.infoHash?.slice(0, 12)}...`);
@@ -941,31 +914,6 @@ const WEB_HTML = `<!DOCTYPE html>
       </div>
     </div>
 
-    <!-- Meteor -->
-    <div class="card">
-      <div class="card-header">
-        <h3>🌠 Meteor</h3>
-        <span class="badge" id="meteorBadge">Off</span>
-      </div>
-      <div class="provider-card">
-        <div class="provider-header">
-          <span class="provider-name"><span class="icon">🌠</span> Meteor Instance</span>
-          <label class="toggle" id="meteorToggle">
-            <input type="checkbox" hidden id="meteorEnabled">
-          </label>
-        </div>
-        <div class="form-group">
-          <label>Meteor URL <span class="required">*</span></label>
-          <input type="url" id="meteorUrl" value="https://meteorfortheweebs.midnightignite.me">
-          <div class="hint"><code>https://meteorfortheweebs.midnightignite.me</code> — Meteor manifest link</div>
-        </div>
-        <div style="display:flex;gap:8px">
-          <button class="btn btn-secondary btn-sm" onclick="testMeteor()">🔄 Test</button>
-        </div>
-        <div class="test-result" id="meteorTestResult"></div>
-      </div>
-    </div>
-
     <!-- Jacred -->
     <div class="card">
       <div class="card-header">
@@ -1106,8 +1054,7 @@ setupToggle('jackettToggle');
 setupToggle('prowlarrToggle');
 setupToggle('torrentioToggle');
 setupToggle('cometToggle');
-setupToggle('meteorToggle');
-setupToggle('jacredToggle');
+  setupToggle('jacredToggle');
 setupToggle('mediafusionToggle');
 
 // === Toast ===
@@ -1147,8 +1094,6 @@ function collectConfig() {
     torrentioConfig: document.getElementById('torrentioConfig').value,
     cometUrl: document.getElementById('cometUrl').value,
     cometEnabled: document.getElementById('cometToggle').classList.contains('active'),
-    meteorUrl: document.getElementById('meteorUrl').value,
-    meteorEnabled: document.getElementById('meteorToggle').classList.contains('active'),
     jacredUrl: document.getElementById('jacredUrl').value,
     jacredApiKey: document.getElementById('jacredApiKey').value,
     jacredEnabled: document.getElementById('jacredToggle').classList.contains('active'),
@@ -1169,11 +1114,10 @@ async function generateUrl() {
   const hasProwlarr = cfg.prowlarrEnabled && cfg.prowlarrUrl && cfg.prowlarrApiKey;
   const hasTorrentio = cfg.torrentioEnabled && cfg.torrentioUrl;
   const hasComet = cfg.cometEnabled && cfg.cometUrl;
-  const hasMeteor = cfg.meteorEnabled && cfg.meteorUrl;
   const hasJacred = cfg.jacredEnabled && cfg.jacredUrl && cfg.jacredApiKey;
   const hasMediaFusion = cfg.mediafusionEnabled && cfg.mediafusionUrl;
-  if (!hasJackett && !hasProwlarr && !hasTorrentio && !hasComet && !hasMeteor && !hasJacred && !hasMediaFusion) {
-    showToast('⚠️ Enable at least 1 provider (Jackett/Prowlarr/Torrentio/Comet/Meteor/Jacred/MediaFusion)', 'error');
+  if (!hasJackett && !hasProwlarr && !hasTorrentio && !hasComet && !hasJacred && !hasMediaFusion) {
+    showToast('⚠️ Enable at least 1 provider (Jackett/Prowlarr/Torrentio/Comet/Jacred/MediaFusion)', 'error');
     return;
   }
 
@@ -1236,24 +1180,6 @@ async function testComet() {
     el.textContent = d.ok ? '✅ ' + d.message : '❌ ' + d.message;
     document.getElementById('cometBadge').textContent = d.ok ? '✅ OK' : '❌ Error';
     document.getElementById('cometBadge').className = 'badge ' + (d.ok ? 'success' : 'error');
-  } catch (e) {
-    el.className = 'test-result show error'; el.textContent = '❌ ' + e.message;
-  }
-}
-
-// === Test Meteor ===
-async function testMeteor() {
-  const url = document.getElementById('meteorUrl').value;
-  const el = document.getElementById('meteorTestResult');
-  if (!url) { el.className = 'test-result show error'; el.textContent = '⚠️ Enter Meteor URL first'; return; }
-  try {
-    el.className = 'test-result show'; el.textContent = '🔄 Testing...';
-    const r = await fetch('/api/test/meteor?url=' + encodeURIComponent(url));
-    const d = await r.json();
-    el.className = 'test-result show ' + (d.ok ? 'success' : 'error');
-    el.textContent = d.ok ? '✅ ' + d.message : '❌ ' + d.message;
-    document.getElementById('meteorBadge').textContent = d.ok ? '✅ OK' : '❌ Error';
-    document.getElementById('meteorBadge').className = 'badge ' + (d.ok ? 'success' : 'error');
   } catch (e) {
     el.className = 'test-result show error'; el.textContent = '❌ ' + e.message;
   }
@@ -1323,7 +1249,6 @@ async function testMediaFusion() {
     prowlarrUrl: c.prowlarrUrl, prowlarrApiKey: c.prowlarrApiKey,
     torrentioUrl: c.torrentioUrl, torrentioConfig: c.torrentioConfig,
     cometUrl: c.cometUrl,
-    meteorUrl: c.meteorUrl,
     jacredUrl: c.jacredUrl, jacredApiKey: c.jacredApiKey,
     mediafusionUrl: c.mediafusionUrl,
     torrServerUrl: c.torrServerUrl, torrServerUser: c.torrServerUser,
@@ -1333,7 +1258,7 @@ async function testMediaFusion() {
   const toggleMap = {
     jackettUrl: 'jackettToggle', prowlarrUrl: 'prowlarrToggle',
     torrentioUrl: 'torrentioToggle', cometUrl: 'cometToggle',
-    meteorUrl: 'meteorToggle', jacredUrl: 'jacredToggle',
+    jacredUrl: 'jacredToggle',
     mediafusionUrl: 'mediafusionToggle',
   };
   for (const [id, val] of Object.entries(fields)) {
@@ -1375,7 +1300,6 @@ function configFromQuery(q) {
     torrentioUrl: q.torrentioUrl || '',
     torrentioConfig: q.torrentioConfig || '',
     cometUrl: q.cometUrl || '',
-    meteorUrl: q.meteorUrl || '',
     jacredUrl: q.jacredUrl || '',
     jacredApiKey: q.jacredApiKey || '',
     mediafusionUrl: q.mediafusionUrl || '',
@@ -1443,8 +1367,6 @@ app.post('/api/generate', (req, res) => {
     torrentioConfig: body.torrentioConfig || '',
     torrentioEnabled: !!body.torrentioEnabled,
     cometUrl: body.cometEnabled ? (body.cometUrl || '') : '',
-    meteorUrl: body.meteorEnabled ? (body.meteorUrl || '') : '',
-    meteorEnabled: !!body.meteorEnabled,
     jacredUrl: body.jacredEnabled ? (body.jacredUrl || '') : '',
     jacredApiKey: body.jacredEnabled ? (body.jacredApiKey || '') : '',
     mediafusionUrl: body.mediafusionEnabled ? (body.mediafusionUrl || '') : '',
@@ -1511,22 +1433,6 @@ app.get('/api/test/comet', async (req, res) => {
   }
 });
 
-// ---- API: Test Meteor ----
-app.get('/api/test/meteor', async (req, res) => {
-  try {
-    const baseUrl = (req.query.url || 'https://meteorfortheweebs.midnightignite.me').replace(/\/+$/, '');
-    const r = await fetch(`${baseUrl}/stream/movie/tt0133093.json`, {
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!r.ok) { res.json({ ok: false, message: `HTTP ${r.status}` }); return; }
-    const data = await r.json();
-    const count = (data.streams || []).length;
-    res.json({ ok: true, message: `✅ Meteor OK — ${count} streams for The Matrix` });
-  } catch (e) {
-    res.json({ ok: false, message: e.message });
-  }
-});
-
 // ---- API: Test Jacred ----
 app.get('/api/test/jacred', async (req, res) => {
   try {
@@ -1564,7 +1470,7 @@ app.get('/api/test/mediafusion', async (req, res) => {
 // ---- Torrentio-style routes (no UUID, just config) ----
 app.get('/:config/manifest.json', (req, res) => {
   const config = decodeConfig(req.params.config);
-  const hasConfig = !!(config.jackettUrl || config.prowlarrUrl || config.torrentioUrl || config.cometUrl || config.meteorUrl || config.jacredUrl || config.mediafusionUrl);
+  const hasConfig = !!(config.jackettUrl || config.prowlarrUrl || config.torrentioUrl || config.cometUrl || config.jacredUrl || config.mediafusionUrl);
   res.json(getManifest(!hasConfig));
 });
 app.get('/:config/stream/:type/:id.json', async (req, res) => {
@@ -1587,7 +1493,7 @@ function getManifest(configRequired) {
 
 app.get('/stremio/:uuid/:config/manifest.json', (req, res) => {
   const config = decodeConfig(req.params.config);
-  const hasConfig = !!(config.jackettUrl || config.prowlarrUrl || config.torrentioUrl || config.cometUrl || config.meteorUrl || config.jacredUrl || config.mediafusionUrl);
+  const hasConfig = !!(config.jackettUrl || config.prowlarrUrl || config.torrentioUrl || config.cometUrl || config.jacredUrl || config.mediafusionUrl);
   res.json(getManifest(!hasConfig));
 });
 
@@ -1610,6 +1516,6 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`  Web UI:   http://0.0.0.0:${PORT}/configure`);
   console.log(`  Manifest: http://0.0.0.0:${PORT}/:config/manifest.json`);
   console.log(`  Example:  http://0.0.0.0:${PORT}/eyJ0Ijp7InUiOiJodHRwczovL3RvcnJlbnRpby5zdHJlbS5mdW4iLCJjIjoiIn0sIm0iOjV9/manifest.json`);
-  console.log(`  Providers: Jackett / Prowlarr / Torrentio / Comet / Meteor / Jacred / MediaFusion`);
+  console.log(`  Providers: Jackett / Prowlarr / Torrentio / Comet / Jacred / MediaFusion`);
   console.log('='.repeat(50));
 });
