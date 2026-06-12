@@ -1552,7 +1552,7 @@ app.get('/stremio/:uuid/:config/stream/:type/:id.json', async (req, res) => {
 // ============================================================================
 // 7. STARTUP
 // ============================================================================
-const PORT = parseInt(process.env.PORT || '3000', 10);
+const PORT = parseInt(process.env.PORT || '7860', 10);
 app.listen(PORT, '0.0.0.0', () => {
   console.log('='.repeat(50));
   console.log('  UniTorrent — Multi-Provider Stremio Addon');
