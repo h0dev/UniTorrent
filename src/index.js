@@ -1357,9 +1357,9 @@ function configFromQuery(q) {
 }
 
 // ---- Clean routes for Stremio native config ----
-// Manifest (no embedded config — Stremio shows config form from manifest.config)
+// Manifest (no embedded config — Stremio shows config form)
 app.get('/manifest.json', (req, res) => {
-  res.json(MANIFEST);
+  res.json(getManifest(true));
 });
 // Stream search with config from query params (Stremio passes config values)
 app.get('/stream/:type/:id.json', async (req, res) => {
@@ -1405,12 +1405,11 @@ app.post('/api/generate', (req, res) => {
     torrServerType: body.torrServerType || 'official',
     maxResults: body.maxResults || 5,
   };
-  const uuid = generateUUID();
   const b64 = encodeConfig(cfg);
   const baseUrl = `${req.protocol}://${req.get('host')}`;
-  const manifestUrl = `${baseUrl}/stremio/${uuid}/${b64}/manifest.json`;
+  const manifestUrl = `${baseUrl}/${b64}/manifest.json`;
   const stremioLink = `stremio://${manifestUrl.replace(/^https?:\/\//, '')}`;
-  res.json({ manifestUrl, stremioLink, uuid });
+  res.json({ manifestUrl, stremioLink });
 });
 
 // ---- API: Test Jackett ----
@@ -1513,9 +1512,34 @@ app.get('/api/test/mediafusion', async (req, res) => {
   }
 });
 
+// ---- Torrentio-style routes (no UUID, just config) ----
+app.get('/:config/manifest.json', (req, res) => {
+  const config = decodeConfig(req.params.config);
+  const hasConfig = !!(config.jackettUrl || config.prowlarrUrl || config.torrentioUrl || config.cometUrl || config.meteorUrl || config.jacredUrl || config.mediafusionUrl);
+  res.json(getManifest(!hasConfig));
+});
+app.get('/:config/stream/:type/:id.json', async (req, res) => {
+  const config = decodeConfig(req.params.config);
+  const result = await handleStream(config, req.params.type, req.params.id);
+  res.json(result);
+});
+
 // ---- Stremio routes ----
+// Dynamic manifest: configurationRequired depends on whether config is embedded
+function getManifest(configRequired) {
+  return {
+    ...MANIFEST,
+    behaviorHints: {
+      configurable: true,
+      configurationRequired: configRequired,
+    },
+  };
+}
+
 app.get('/stremio/:uuid/:config/manifest.json', (req, res) => {
-  res.json(MANIFEST);
+  const config = decodeConfig(req.params.config);
+  const hasConfig = !!(config.jackettUrl || config.prowlarrUrl || config.torrentioUrl || config.cometUrl || config.meteorUrl || config.jacredUrl || config.mediafusionUrl);
+  res.json(getManifest(!hasConfig));
 });
 
 app.get('/stremio/:uuid/:config/stream/:type/:id.json', async (req, res) => {
@@ -1535,7 +1559,8 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log('='.repeat(50));
   console.log(`  Server:   http://0.0.0.0:${PORT}`);
   console.log(`  Web UI:   http://0.0.0.0:${PORT}/configure`);
-  console.log(`  Manifest: http://0.0.0.0:${PORT}/stremio/:uuid/:config/manifest.json`);
+  console.log(`  Manifest: http://0.0.0.0:${PORT}/:config/manifest.json`);
+  console.log(`  Example:  http://0.0.0.0:${PORT}/eyJ0Ijp7InUiOiJodHRwczovL3RvcnJlbnRpby5zdHJlbS5mdW4iLCJjIjoiIn0sIm0iOjV9/manifest.json`);
   console.log(`  Providers: Jackett / Prowlarr / Torrentio / Comet / Meteor / Jacred / MediaFusion`);
   console.log('='.repeat(50));
 });
