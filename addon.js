@@ -1049,7 +1049,10 @@ document.getElementById('mobileMenuBtn').addEventListener('click', () => {
 // === Toggle switches ===
 function setupToggle(id) {
   const el = document.getElementById(id);
-  el.addEventListener('click', () => el.classList.toggle('active'));
+  el.addEventListener('click', (e) => {
+    e.preventDefault();
+    el.classList.toggle('active');
+  });
 }
 setupToggle('jackettToggle');
 setupToggle('prowlarrToggle');
