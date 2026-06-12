@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // ============================================================================
-// Jackett + Prowlarr + Torrentio → Stremio Addon
+// UniTorrent — Multi-Provider Stremio Addon
 // ============================================================================
-// Multi-provider: search Jackett, Prowlarr, AND Torrentio cùng lúc
-// Config nhúng URL (base64) — web UI MediaFusion-inspired
+// Providers: Jackett, Prowlarr, Torrentio, Comet, Meteor, Jacred, MediaFusion
+// Config embedded in URL (base64) — TorrServer HTTP streaming support
 // ============================================================================
 
 const crypto = require('crypto');
@@ -27,21 +27,27 @@ const MANIFEST = {
 // ============================================================================
 // 2. CONFIG ENCODING
 // ============================================================================
-// Format compact để base64 ngắn:
+// Compact format to keep base64 short:
 // {
 //   j: { u: "jackettUrl", k: "jackettApiKey" },
 //   p: { u: "prowlarrUrl", k: "prowlarrApiKey" },
-//   t: { e: true/false, c: "torrentioConfigString" },
+//   t: { u: "torrentioUrl", c: "torrentioConfigString" },
+//   o: { u: "cometUrl" },
+//   r: { u: "meteorUrl" },
+//   a: { u: "jacredUrl", k: "jacredApiKey" },
+//   f: { u: "mediafusionUrl" },
+//   s: { u: "torrServerUrl", a: "user:pass" },
 //   m: 5  // maxResults
 // }
 function encodeConfig(config) {
   const c = {};
   if (config.jackettUrl) c.j = { u: config.jackettUrl.replace(/\/$/, ''), k: config.jackettApiKey || '' };
   if (config.prowlarrUrl) c.p = { u: config.prowlarrUrl.replace(/\/$/, ''), k: config.prowlarrApiKey || '' };
-  if (config.torrentioEnabled) c.t = { e: true, c: config.torrentioConfig || '' };
+  if (config.torrentioEnabled && config.torrentioUrl) c.t = { u: config.torrentioUrl.replace(/\/$/, ''), c: config.torrentioConfig || '' };
   if (config.cometUrl) c.o = { u: config.cometUrl.replace(/\/$/, '') };
-  if (config.meteorEnabled) c.r = { e: true };
+  if (config.meteorUrl) c.r = { u: config.meteorUrl.replace(/\/$/, '') };
   if (config.jacredUrl) c.a = { u: config.jacredUrl.replace(/\/$/, ''), k: config.jacredApiKey || '' };
+  if (config.mediafusionUrl) c.f = { u: config.mediafusionUrl.replace(/\/$/, '') };
   if (config.torrServerUrl) {
     c.s = { u: config.torrServerUrl.replace(/\/$/, '') };
     if (config.torrServerUser || config.torrServerPassword) {
@@ -61,10 +67,19 @@ function decodeConfig(b64) {
     const cfg = { maxResults: d.m || 5 };
     if (d.j) { cfg.jackettUrl = d.j.u; cfg.jackettApiKey = d.j.k; }
     if (d.p) { cfg.prowlarrUrl = d.p.u; cfg.prowlarrApiKey = d.p.k; }
-    if (d.t && d.t.e) { cfg.torrentioEnabled = true; cfg.torrentioConfig = d.t.c || ''; }
-    if (d.o && d.o.u) { cfg.cometEnabled = true; cfg.cometUrl = d.o.u; }
-    if (d.r && d.r.e) { cfg.meteorEnabled = true; }
-    if (d.a && d.a.u) { cfg.jacredEnabled = true; cfg.jacredUrl = d.a.u; cfg.jacredApiKey = d.a.k || ''; }
+    // Torrentio: old format { e, c } or new format { u, c }
+    if (d.t) {
+      if (d.t.u) { cfg.torrentioUrl = d.t.u; cfg.torrentioConfig = d.t.c || ''; }
+      else if (d.t.e) { cfg.torrentioUrl = 'https://torrentio.strem.fun'; cfg.torrentioConfig = d.t.c || ''; }
+    }
+    if (d.o && d.o.u) { cfg.cometUrl = d.o.u; }
+    // Meteor: old format { e } or new format { u }
+    if (d.r) {
+      if (d.r.u) { cfg.meteorUrl = d.r.u; }
+      else if (d.r.e) { cfg.meteorUrl = 'https://meteorfortheweebs.midnightignite.me'; }
+    }
+    if (d.a && d.a.u) { cfg.jacredUrl = d.a.u; cfg.jacredApiKey = d.a.k || ''; }
+    if (d.f && d.f.u) { cfg.mediafusionUrl = d.f.u; }
     if (d.s) {
       if (typeof d.s === 'string') { cfg.torrServerUrl = d.s; }
       else {
@@ -83,12 +98,13 @@ function decodeConfig(b64) {
       jackettApiKey: process.env.JACKETT_API_KEY || '',
       prowlarrUrl: process.env.PROWLARR_URL || '',
       prowlarrApiKey: process.env.PROWLARR_API_KEY || '',
-      torrentioEnabled: !!process.env.TORRENTIO_ENABLED,
+      torrentioUrl: process.env.TORRENTIO_URL || 'https://torrentio.strem.fun',
       torrentioConfig: process.env.TORRENTIO_CONFIG || '',
       cometUrl: process.env.COMET_URL || '',
-      meteorEnabled: !!process.env.METEOR_ENABLED,
+      meteorUrl: process.env.METEOR_URL || 'https://meteorfortheweebs.midnightignite.me',
       jacredUrl: process.env.JACRED_URL || '',
       jacredApiKey: process.env.JACRED_API_KEY || '',
+      mediafusionUrl: process.env.MEDIAFUSION_URL || '',
       torrServerUrl: process.env.TORRSERVER_URL || '',
       torrServerUser: process.env.TORRSERVER_USER || '',
       torrServerPassword: process.env.TORRSERVER_PASSWORD || '',
@@ -201,8 +217,8 @@ async function searchProwlarr(cfg, imdbId, type) {
 
 // ---- Torrentio (HTTP proxy) ----
 async function searchTorrentio(cfg, type, id) {
-  if (!cfg.torrentioEnabled) return [];
-  const baseUrl = 'https://torrentio.strem.fun';
+  if (!cfg.torrentioUrl) return [];
+  const baseUrl = cfg.torrentioUrl.replace(/\/+$/, '');
   const configPart = cfg.torrentioConfig || '';
   const url = configPart
     ? `${baseUrl}/${configPart}/stream/${type}/${id}.json`
@@ -241,10 +257,10 @@ async function searchComet(cfg, type, id) {
   }));
 }
 
-// ---- Meteor (public instance) ----
+// ---- Meteor (public or custom instance) ----
 async function searchMeteor(cfg, type, id) {
-  if (!cfg.meteorEnabled) return [];
-  const url = `https://meteorfortheweebs.midnightignite.me/stremio/stream/${type}/${id}.json`;
+  if (!cfg.meteorUrl) return [];
+  const url = `${cfg.meteorUrl.replace(/\/+$/, '')}/stream/${type}/${id}.json`;
   const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
   if (!res.ok) throw new Error(`Meteor HTTP ${res.status}`);
   const data = await res.json();
@@ -256,6 +272,25 @@ async function searchMeteor(cfg, type, id) {
     MagnetUri: '',
     CategoryDesc: '',
     _provider: 'Meteor',
+    _rawStream: s,
+  }));
+}
+
+// ---- MediaFusion ----
+async function searchMediaFusion(cfg, type, id) {
+  if (!cfg.mediafusionUrl) return [];
+  const url = `${cfg.mediafusionUrl.replace(/\/+$/, '')}/D-/stream/${type}/${id}.json`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+  if (!res.ok) throw new Error(`MediaFusion HTTP ${res.status}`);
+  const data = await res.json();
+  return (data.streams || []).filter(s => s.infoHash || s.url).map(s => ({
+    Title: (s.title || s.name || '').replace(/\n/g, ' ').trim(),
+    Seeders: parseInt((s.name || '').match(/S:(\d+)/)?.[1] || '0', 10),
+    Size: s.behaviorHints?.videoSize || 0,
+    InfoHash: s.infoHash || '',
+    MagnetUri: '',
+    CategoryDesc: '',
+    _provider: 'MediaFusion',
     _rawStream: s,
   }));
 }
@@ -281,14 +316,15 @@ async function handleStream(config, type, id) {
     if (!imdbId) return { streams: [] };
     console.log(`[Stream] ${type} ${imdbId}`);
 
-    // Query tất cả providers song song
+    // Query all providers in parallel
     const promises = [];
     if (config.jackettUrl) promises.push(searchJackett(config, imdbId));
     if (config.prowlarrUrl) promises.push(searchProwlarr(config, imdbId, type));
-    if (config.torrentioEnabled) promises.push(searchTorrentio(config, type, id));
+    if (config.torrentioUrl) promises.push(searchTorrentio(config, type, id));
     if (config.cometUrl) promises.push(searchComet(config, type, id));
-    if (config.meteorEnabled) promises.push(searchMeteor(config, type, id));
+    if (config.meteorUrl) promises.push(searchMeteor(config, type, id));
     if (config.jacredUrl) promises.push(searchJacred(config, imdbId));
+    if (config.mediafusionUrl) promises.push(searchMediaFusion(config, type, id));
 
     if (promises.length === 0) return { streams: [] };
 
@@ -312,8 +348,8 @@ async function handleStream(config, type, id) {
 
     const maxResults = config.maxResults || 5;
     const streams = unique.slice(0, maxResults).map(r => {
-      // Proxy-style providers (Torrentio, Comet, Meteor) — pass through raw stream format
-      if ((r._provider === 'Torrentio' || r._provider === 'Comet' || r._provider === 'Meteor') && r._rawStream) {
+      // Proxy-style providers (Torrentio, Comet, Meteor, MediaFusion) — pass through raw stream format
+      if ((r._provider === 'Torrentio' || r._provider === 'Comet' || r._provider === 'Meteor' || r._provider === 'MediaFusion') && r._rawStream) {
         const s = { ...r._rawStream };
         s.name = `[${r._provider}] ${s.name || ''}`;
         return s;
@@ -334,7 +370,7 @@ async function handleStream(config, type, id) {
 // ============================================================================
 
 const WEB_HTML = `<!DOCTYPE html>
-<html lang="vi" class="dark">
+<html lang="en" class="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -755,14 +791,14 @@ const WEB_HTML = `<!DOCTYPE html>
   <div class="tab-content active" id="tab-indexers">
     <div class="page-header">
       <h2>🔍 Indexers</h2>
-      <p>Cấu hình các nguồn torrent — chọn ít nhất 1 provider</p>
+      <p>Configure torrent sources — enable at least 1 provider</p>
     </div>
 
     <!-- Jackett -->
     <div class="card">
       <div class="card-header">
         <h3>🃏 Jackett</h3>
-        <span class="badge" id="jackettBadge">Chưa cấu hình</span>
+        <span class="badge" id="jackettBadge">Not configured</span>
       </div>
       <div class="provider-card">
         <div class="provider-header">
@@ -777,7 +813,7 @@ const WEB_HTML = `<!DOCTYPE html>
         </div>
         <div class="form-group">
           <label>API Key <span class="required">*</span></label>
-          <input type="text" id="jackettApiKey" placeholder="Nhập API key từ Jackett Dashboard">
+          <input type="text" id="jackettApiKey" placeholder="API key from Jackett Dashboard">
         </div>
         <div style="display:flex;gap:8px">
           <button class="btn btn-secondary btn-sm" onclick="testJackett()">🔄 Test</button>
@@ -790,7 +826,7 @@ const WEB_HTML = `<!DOCTYPE html>
     <div class="card">
       <div class="card-header">
         <h3>🐟 Prowlarr</h3>
-        <span class="badge" id="prowlarrBadge">Chưa cấu hình</span>
+        <span class="badge" id="prowlarrBadge">Not configured</span>
       </div>
       <div class="provider-card">
         <div class="provider-header">
@@ -818,7 +854,7 @@ const WEB_HTML = `<!DOCTYPE html>
     <div class="card">
       <div class="card-header">
         <h3>⚡ Torrentio</h3>
-        <span class="badge" id="torrentioBadge">Tắt</span>
+        <span class="badge" id="torrentioBadge">Off</span>
       </div>
       <div class="provider-card">
         <div class="provider-header">
@@ -828,9 +864,14 @@ const WEB_HTML = `<!DOCTYPE html>
           </label>
         </div>
         <div class="form-group">
-          <label>Torrentio Config String (tùy chọn)</label>
+          <label>Torrentio URL <span class="required">*</span></label>
+          <input type="url" id="torrentioUrl" placeholder="https://torrentio.strem.fun">
+          <div class="hint">Default: <code>https://torrentio.strem.fun</code>. Use a self-hosted instance or ElfHosted.</div>
+        </div>
+        <div class="form-group">
+          <label>Torrentio Config String (optional)</label>
           <input type="text" id="torrentioConfig" placeholder="realdebrid=KEY|providers=yts,eztv|limit=5">
-          <div class="hint">Để trống nếu dùng mặc định. Format: <code>realdebrid=KEY|providers=...|limit=5</code></div>
+          <div class="hint">Leave empty for default. Format: <code>realdebrid=KEY|providers=...|limit=5</code></div>
         </div>
       </div>
     </div>
@@ -839,7 +880,7 @@ const WEB_HTML = `<!DOCTYPE html>
     <div class="card">
       <div class="card-header">
         <h3>☄️ Comet</h3>
-        <span class="badge" id="cometBadge">Chưa cấu hình</span>
+        <span class="badge" id="cometBadge">Not configured</span>
       </div>
       <div class="provider-card">
         <div class="provider-header">
@@ -851,7 +892,7 @@ const WEB_HTML = `<!DOCTYPE html>
         <div class="form-group">
           <label>Comet URL <span class="required">*</span></label>
           <input type="url" id="cometUrl" placeholder="https://comet.feels.legal">
-          <div class="hint">Public instances: <code>https://comet.feels.legal</code>, <code>https://comet.elfhosted.com</code>. Hoặc tự host.</div>
+          <div class="hint">Public instances: <code>https://comet.feels.legal</code>, <code>https://comet.elfhosted.com</code>. Or self-host.</div>
         </div>
         <div style="display:flex;gap:8px">
           <button class="btn btn-secondary btn-sm" onclick="testComet()">🔄 Test</button>
@@ -864,18 +905,19 @@ const WEB_HTML = `<!DOCTYPE html>
     <div class="card">
       <div class="card-header">
         <h3>🌠 Meteor</h3>
-        <span class="badge" id="meteorBadge">Tắt</span>
+        <span class="badge" id="meteorBadge">Off</span>
       </div>
       <div class="provider-card">
         <div class="provider-header">
-          <span class="provider-name"><span class="icon">🌠</span> Meteor (Public)</span>
+          <span class="provider-name"><span class="icon">🌠</span> Meteor Instance</span>
           <label class="toggle" id="meteorToggle">
             <input type="checkbox" hidden id="meteorEnabled">
           </label>
         </div>
         <div class="form-group">
-          <label>Meteor công cộng — chỉ cần bật/tắt</label>
-          <div class="hint">Sử dụng instance public tại <code>https://meteorfortheweebs.midnightignite.me</code></div>
+          <label>Meteor URL <span class="required">*</span></label>
+          <input type="url" id="meteorUrl" placeholder="https://meteorfortheweebs.midnightignite.me">
+          <div class="hint">Default: <code>https://meteorfortheweebs.midnightignite.me</code></div>
         </div>
         <div style="display:flex;gap:8px">
           <button class="btn btn-secondary btn-sm" onclick="testMeteor()">🔄 Test</button>
@@ -888,7 +930,7 @@ const WEB_HTML = `<!DOCTYPE html>
     <div class="card">
       <div class="card-header">
         <h3>🔷 Jacred</h3>
-        <span class="badge" id="jacredBadge">Chưa cấu hình</span>
+        <span class="badge" id="jacredBadge">Not configured</span>
       </div>
       <div class="provider-card">
         <div class="provider-header">
@@ -903,12 +945,37 @@ const WEB_HTML = `<!DOCTYPE html>
         </div>
         <div class="form-group">
           <label>API Key <span class="required">*</span></label>
-          <input type="text" id="jacredApiKey" placeholder="API Key từ config">
+          <input type="text" id="jacredApiKey" placeholder="API Key from config">
         </div>
         <div style="display:flex;gap:8px">
           <button class="btn btn-secondary btn-sm" onclick="testJacred()">🔄 Test</button>
         </div>
         <div class="test-result" id="jacredTestResult"></div>
+      </div>
+    </div>
+
+    <!-- MediaFusion -->
+    <div class="card">
+      <div class="card-header">
+        <h3>🎬 MediaFusion</h3>
+        <span class="badge" id="mediafusionBadge">Off</span>
+      </div>
+      <div class="provider-card">
+        <div class="provider-header">
+          <span class="provider-name"><span class="icon">🎬</span> MediaFusion Instance</span>
+          <label class="toggle" id="mediafusionToggle">
+            <input type="checkbox" hidden id="mediafusionEnabled">
+          </label>
+        </div>
+        <div class="form-group">
+          <label>MediaFusion URL <span class="required">*</span></label>
+          <input type="url" id="mediafusionUrl" placeholder="https://mediafusion.elfhosted.com">
+          <div class="hint">Public: <code>https://mediafusion.elfhosted.com</code>. Or self-host from <a href="https://github.com/mhdzumair/MediaFusion" target="_blank">GitHub</a>.</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-secondary btn-sm" onclick="testMediaFusion()">🔄 Test</button>
+        </div>
+        <div class="test-result" id="mediafusionTestResult"></div>
       </div>
     </div>
   </div>
@@ -917,29 +984,29 @@ const WEB_HTML = `<!DOCTYPE html>
   <div class="tab-content" id="tab-preferences">
     <div class="page-header">
       <h2>⚙️ Preferences</h2>
-      <p>Tùy chỉnh kết quả tìm kiếm</p>
+      <p>Customize search results</p>
     </div>
     <div class="card">
-      <div class="card-header"><h3>🎯 Tìm kiếm</h3></div>
+      <div class="card-header"><h3>🎯 Search</h3></div>
       <div class="form-row">
         <div class="form-group">
-          <label>Số kết quả tối đa</label>
+          <label>Max Results</label>
           <input type="number" id="maxResults" value="5" min="1" max="20">
         </div>
       </div>
       <div class="form-group" style="margin-top:16px">
-        <label>TorrServer URL (tùy chọn)</label>
+        <label>TorrServer URL (optional)</label>
         <input type="url" id="torrServerUrl" placeholder="http://192.168.1.100:8090">
-        <div class="hint">Hỗ trợ bản chính thức và fork <a href="https://github.com/9000000/TorrServer" target="_blank">9000000/TorrServer</a> (API tương thích)</div>
+        <div class="hint">Supports official and <a href="https://github.com/9000000/TorrServer" target="_blank">9000000/TorrServer</a> fork (API-compatible)</div>
       </div>
       <div class="form-group" style="margin-top:16px">
-        <label>TorrServer Username (nếu có auth)</label>
+        <label>TorrServer Username (if auth enabled)</label>
         <input type="text" id="torrServerUser" placeholder="admin">
       </div>
       <div class="form-group" style="margin-top:16px">
-        <label>TorrServer Password (nếu có auth)</label>
-        <input type="password" id="torrServerPassword" placeholder="Nhập password">
-        <div class="hint">HTTP Basic Auth. Bật trên TorrServer với flag <code>--httpauth</code>. <br>Credentials lưu trong <code>accs.db</code>: <code>{"user":"pass"}</code></div>
+        <label>TorrServer Password (if auth enabled)</label>
+        <input type="password" id="torrServerPassword" placeholder="Enter password">
+        <div class="hint">HTTP Basic Auth. Enable on TorrServer with <code>--httpauth</code> flag. <br>Credentials stored in <code>accs.db</code>: <code>{"user":"pass"}</code></div>
       </div>
     </div>
   </div>
@@ -948,14 +1015,14 @@ const WEB_HTML = `<!DOCTYPE html>
   <div class="tab-content" id="tab-install">
     <div class="page-header">
       <h2>📦 Install</h2>
-      <p>Tạo URL cá nhân và thêm vào Stremio</p>
+      <p>Generate your personal URL and add it to Stremio</p>
     </div>
     <div class="card">
-      <div class="card-header"><h3>🔗 Tạo URL cài đặt</h3></div>
+      <div class="card-header"><h3>🔗 Generate Install URL</h3></div>
       <p style="color:var(--text-muted);font-size:14px;margin-bottom:16px">
-        Click nút bên dưới để tạo URL chứa toàn bộ cấu hình của bạn.
+        Click the button below to create a URL containing your full configuration.
       </p>
-      <button class="btn btn-primary" onclick="generateUrl()">🔗 Tạo URL cá nhân</button>
+      <button class="btn btn-primary" onclick="generateUrl()">🔗 Generate Personal URL</button>
       <div id="resultContainer"></div>
     </div>
   </div>
@@ -990,6 +1057,7 @@ setupToggle('torrentioToggle');
 setupToggle('cometToggle');
 setupToggle('meteorToggle');
 setupToggle('jacredToggle');
+setupToggle('mediafusionToggle');
 
 // === Toast ===
 function showToast(msg, type = 'success') {
@@ -1002,7 +1070,7 @@ function showToast(msg, type = 'success') {
 // === Copy helper ===
 function copyText(text) {
   if (navigator.clipboard) {
-    navigator.clipboard.writeText(text).then(() => showToast('✅ Đã copy URL!'));
+    navigator.clipboard.writeText(text).then(() => showToast('✅ URL copied!'));
   } else {
     const ta = document.createElement('textarea');
     ta.value = text;
@@ -1010,7 +1078,7 @@ function copyText(text) {
     ta.select();
     document.execCommand('copy');
     document.body.removeChild(ta);
-    showToast('✅ Đã copy URL!');
+    showToast('✅ URL copied!');
   }
 }
 
@@ -1023,14 +1091,18 @@ function collectConfig() {
     prowlarrUrl: document.getElementById('prowlarrUrl').value,
     prowlarrApiKey: document.getElementById('prowlarrApiKey').value,
     prowlarrEnabled: document.getElementById('prowlarrToggle').classList.contains('active'),
+    torrentioUrl: document.getElementById('torrentioUrl').value,
     torrentioEnabled: document.getElementById('torrentioToggle').classList.contains('active'),
     torrentioConfig: document.getElementById('torrentioConfig').value,
     cometUrl: document.getElementById('cometUrl').value,
     cometEnabled: document.getElementById('cometToggle').classList.contains('active'),
+    meteorUrl: document.getElementById('meteorUrl').value,
     meteorEnabled: document.getElementById('meteorToggle').classList.contains('active'),
     jacredUrl: document.getElementById('jacredUrl').value,
     jacredApiKey: document.getElementById('jacredApiKey').value,
     jacredEnabled: document.getElementById('jacredToggle').classList.contains('active'),
+    mediafusionUrl: document.getElementById('mediafusionUrl').value,
+    mediafusionEnabled: document.getElementById('mediafusionToggle').classList.contains('active'),
     torrServerUrl: document.getElementById('torrServerUrl').value,
     torrServerUser: document.getElementById('torrServerUser').value,
     torrServerPassword: document.getElementById('torrServerPassword').value,
@@ -1043,12 +1115,13 @@ async function generateUrl() {
   const cfg = collectConfig();
   const hasJackett = cfg.jackettEnabled && cfg.jackettUrl && cfg.jackettApiKey;
   const hasProwlarr = cfg.prowlarrEnabled && cfg.prowlarrUrl && cfg.prowlarrApiKey;
-  const hasTorrentio = cfg.torrentioEnabled;
+  const hasTorrentio = cfg.torrentioEnabled && cfg.torrentioUrl;
   const hasComet = cfg.cometEnabled && cfg.cometUrl;
-  const hasMeteor = cfg.meteorEnabled;
+  const hasMeteor = cfg.meteorEnabled && cfg.meteorUrl;
   const hasJacred = cfg.jacredEnabled && cfg.jacredUrl && cfg.jacredApiKey;
-  if (!hasJackett && !hasProwlarr && !hasTorrentio && !hasComet && !hasMeteor && !hasJacred) {
-    showToast('⚠️ Cần bật ít nhất 1 provider (Jackett/Prowlarr/Torrentio/Comet/Meteor/Jacred)', 'error');
+  const hasMediaFusion = cfg.mediafusionEnabled && cfg.mediafusionUrl;
+  if (!hasJackett && !hasProwlarr && !hasTorrentio && !hasComet && !hasMeteor && !hasJacred && !hasMediaFusion) {
+    showToast('⚠️ Enable at least 1 provider (Jackett/Prowlarr/Torrentio/Comet/Meteor/Jacred/MediaFusion)', 'error');
     return;
   }
 
@@ -1062,20 +1135,20 @@ async function generateUrl() {
     const container = document.getElementById('resultContainer');
     container.innerHTML = \`
       <div class="result-box">
-        <h4>✅ URL đã sẵn sàng!</h4>
-        <p>Copy URL này vào Stremio → Addons → Install from URL</p>
+        <h4>✅ URL is Ready!</h4>
+        <p>Copy this URL into Stremio → Addons → Install from URL</p>
         <div class="result-url">\${data.manifestUrl}</div>
         <div class="result-actions">
           <button class="btn btn-success btn-sm" onclick="copyText('\${data.manifestUrl}')">📋 Copy URL</button>
-          <a class="btn btn-primary btn-sm" href="\${data.stremioLink}" target="_blank">🚀 Mở trong Stremio</a>
-          <button class="btn btn-secondary btn-sm" onclick="window.location.href='/configure'">🔄 Tạo lại</button>
+          <a class="btn btn-primary btn-sm" href="\${data.stremioLink}" target="_blank">🚀 Open in Stremio</a>
+          <button class="btn btn-secondary btn-sm" onclick="window.location.href='/configure'">🔄 Regenerate</button>
         </div>
       </div>
     \`;
     container.scrollIntoView({ behavior: 'smooth' });
-    showToast('✅ URL đã được tạo!');
+    showToast('✅ URL generated!');
   } catch (e) {
-    showToast('⚠️ Lỗi: ' + e.message, 'error');
+    showToast('⚠️ Error: ' + e.message, 'error');
   }
 }
 
@@ -1084,14 +1157,14 @@ async function testJackett() {
   const url = document.getElementById('jackettUrl').value;
   const key = document.getElementById('jackettApiKey').value;
   const el = document.getElementById('jackettTestResult');
-  if (!url || !key) { el.className = 'test-result show error'; el.textContent = '⚠️ Nhập URL và API Key trước'; return; }
+  if (!url || !key) { el.className = 'test-result show error'; el.textContent = '⚠️ Enter URL and API Key first'; return; }
   try {
-    el.className = 'test-result show'; el.textContent = '🔄 Đang test...';
+    el.className = 'test-result show'; el.textContent = '🔄 Testing...';
     const r = await fetch('/api/test/jackett?url=' + encodeURIComponent(url) + '&key=' + encodeURIComponent(key));
     const d = await r.json();
     el.className = 'test-result show ' + (d.ok ? 'success' : 'error');
     el.textContent = d.ok ? '✅ ' + d.message : '❌ ' + d.message;
-    document.getElementById('jackettBadge').textContent = d.ok ? '✅ OK' : '❌ Lỗi';
+    document.getElementById('jackettBadge').textContent = d.ok ? '✅ OK' : '❌ Error';
     document.getElementById('jackettBadge').className = 'badge ' + (d.ok ? 'success' : 'error');
   } catch (e) {
     el.className = 'test-result show error'; el.textContent = '❌ ' + e.message;
@@ -1102,14 +1175,14 @@ async function testJackett() {
 async function testComet() {
   const url = document.getElementById('cometUrl').value;
   const el = document.getElementById('cometTestResult');
-  if (!url) { el.className = 'test-result show error'; el.textContent = '⚠️ Nhập Comet URL trước'; return; }
+  if (!url) { el.className = 'test-result show error'; el.textContent = '⚠️ Enter Comet URL first'; return; }
   try {
-    el.className = 'test-result show'; el.textContent = '🔄 Đang test...';
+    el.className = 'test-result show'; el.textContent = '🔄 Testing...';
     const r = await fetch('/api/test/comet?url=' + encodeURIComponent(url));
     const d = await r.json();
     el.className = 'test-result show ' + (d.ok ? 'success' : 'error');
     el.textContent = d.ok ? '✅ ' + d.message : '❌ ' + d.message;
-    document.getElementById('cometBadge').textContent = d.ok ? '✅ OK' : '❌ Lỗi';
+    document.getElementById('cometBadge').textContent = d.ok ? '✅ OK' : '❌ Error';
     document.getElementById('cometBadge').className = 'badge ' + (d.ok ? 'success' : 'error');
   } catch (e) {
     el.className = 'test-result show error'; el.textContent = '❌ ' + e.message;
@@ -1118,14 +1191,16 @@ async function testComet() {
 
 // === Test Meteor ===
 async function testMeteor() {
+  const url = document.getElementById('meteorUrl').value;
   const el = document.getElementById('meteorTestResult');
+  if (!url) { el.className = 'test-result show error'; el.textContent = '⚠️ Enter Meteor URL first'; return; }
   try {
-    el.className = 'test-result show'; el.textContent = '🔄 Đang test...';
-    const r = await fetch('/api/test/meteor');
+    el.className = 'test-result show'; el.textContent = '🔄 Testing...';
+    const r = await fetch('/api/test/meteor?url=' + encodeURIComponent(url));
     const d = await r.json();
     el.className = 'test-result show ' + (d.ok ? 'success' : 'error');
     el.textContent = d.ok ? '✅ ' + d.message : '❌ ' + d.message;
-    document.getElementById('meteorBadge').textContent = d.ok ? '✅ OK' : '❌ Lỗi';
+    document.getElementById('meteorBadge').textContent = d.ok ? '✅ OK' : '❌ Error';
     document.getElementById('meteorBadge').className = 'badge ' + (d.ok ? 'success' : 'error');
   } catch (e) {
     el.className = 'test-result show error'; el.textContent = '❌ ' + e.message;
@@ -1137,14 +1212,14 @@ async function testJacred() {
   const url = document.getElementById('jacredUrl').value;
   const key = document.getElementById('jacredApiKey').value;
   const el = document.getElementById('jacredTestResult');
-  if (!url || !key) { el.className = 'test-result show error'; el.textContent = '⚠️ Nhập URL và API Key trước'; return; }
+  if (!url || !key) { el.className = 'test-result show error'; el.textContent = '⚠️ Enter URL and API Key first'; return; }
   try {
-    el.className = 'test-result show'; el.textContent = '🔄 Đang test...';
+    el.className = 'test-result show'; el.textContent = '🔄 Testing...';
     const r = await fetch('/api/test/jacred?url=' + encodeURIComponent(url) + '&key=' + encodeURIComponent(key));
     const d = await r.json();
     el.className = 'test-result show ' + (d.ok ? 'success' : 'error');
     el.textContent = d.ok ? '✅ ' + d.message : '❌ ' + d.message;
-    document.getElementById('jacredBadge').textContent = d.ok ? '✅ OK' : '❌ Lỗi';
+    document.getElementById('jacredBadge').textContent = d.ok ? '✅ OK' : '❌ Error';
     document.getElementById('jacredBadge').className = 'badge ' + (d.ok ? 'success' : 'error');
   } catch (e) {
     el.className = 'test-result show error'; el.textContent = '❌ ' + e.message;
@@ -1156,15 +1231,33 @@ async function testProwlarr() {
   const url = document.getElementById('prowlarrUrl').value;
   const key = document.getElementById('prowlarrApiKey').value;
   const el = document.getElementById('prowlarrTestResult');
-  if (!url || !key) { el.className = 'test-result show error'; el.textContent = '⚠️ Nhập URL và API Key trước'; return; }
+  if (!url || !key) { el.className = 'test-result show error'; el.textContent = '⚠️ Enter URL and API Key first'; return; }
   try {
-    el.className = 'test-result show'; el.textContent = '🔄 Đang test...';
+    el.className = 'test-result show'; el.textContent = '🔄 Testing...';
     const r = await fetch('/api/test/prowlarr?url=' + encodeURIComponent(url) + '&key=' + encodeURIComponent(key));
     const d = await r.json();
     el.className = 'test-result show ' + (d.ok ? 'success' : 'error');
     el.textContent = d.ok ? '✅ ' + d.message : '❌ ' + d.message;
-    document.getElementById('prowlarrBadge').textContent = d.ok ? '✅ OK' : '❌ Lỗi';
+    document.getElementById('prowlarrBadge').textContent = d.ok ? '✅ OK' : '❌ Error';
     document.getElementById('prowlarrBadge').className = 'badge ' + (d.ok ? 'success' : 'error');
+  } catch (e) {
+    el.className = 'test-result show error'; el.textContent = '❌ ' + e.message;
+  }
+}
+
+// === Test MediaFusion ===
+async function testMediaFusion() {
+  const url = document.getElementById('mediafusionUrl').value;
+  const el = document.getElementById('mediafusionTestResult');
+  if (!url) { el.className = 'test-result show error'; el.textContent = '⚠️ Enter MediaFusion URL first'; return; }
+  try {
+    el.className = 'test-result show'; el.textContent = '🔄 Testing...';
+    const r = await fetch('/api/test/mediafusion?url=' + encodeURIComponent(url));
+    const d = await r.json();
+    el.className = 'test-result show ' + (d.ok ? 'success' : 'error');
+    el.textContent = d.ok ? '✅ ' + d.message : '❌ ' + d.message;
+    document.getElementById('mediafusionBadge').textContent = d.ok ? '✅ OK' : '❌ Error';
+    document.getElementById('mediafusionBadge').className = 'badge ' + (d.ok ? 'success' : 'error');
   } catch (e) {
     el.className = 'test-result show error'; el.textContent = '❌ ' + e.message;
   }
@@ -1180,6 +1273,13 @@ async function testProwlarr() {
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Suppress browser console warnings about Permissions-Policy features
+app.use((req, res, next) => {
+  res.setHeader('Permissions-Policy',
+    'browsing-topics=(), run-ad-auction=(), join-ad-interest-group=(), private-aggregation=()');
+  next();
+});
 
 // ---- Config page ----
 app.get('/configure', (req, res) => {
@@ -1198,12 +1298,15 @@ app.post('/api/generate', (req, res) => {
     jackettApiKey: body.jackettEnabled ? (body.jackettApiKey || '') : '',
     prowlarrUrl: body.prowlarrEnabled ? (body.prowlarrUrl || '') : '',
     prowlarrApiKey: body.prowlarrEnabled ? (body.prowlarrApiKey || '') : '',
-    torrentioEnabled: !!body.torrentioEnabled,
+    torrentioUrl: body.torrentioEnabled ? (body.torrentioUrl || '') : '',
     torrentioConfig: body.torrentioConfig || '',
+    torrentioEnabled: !!body.torrentioEnabled,
     cometUrl: body.cometEnabled ? (body.cometUrl || '') : '',
+    meteorUrl: body.meteorEnabled ? (body.meteorUrl || '') : '',
     meteorEnabled: !!body.meteorEnabled,
     jacredUrl: body.jacredEnabled ? (body.jacredUrl || '') : '',
     jacredApiKey: body.jacredEnabled ? (body.jacredApiKey || '') : '',
+    mediafusionUrl: body.mediafusionEnabled ? (body.mediafusionUrl || '') : '',
     torrServerUrl: body.torrServerUrl || '',
     torrServerUser: body.torrServerUser || '',
     torrServerPassword: body.torrServerPassword || '',
@@ -1270,7 +1373,8 @@ app.get('/api/test/comet', async (req, res) => {
 // ---- API: Test Meteor ----
 app.get('/api/test/meteor', async (req, res) => {
   try {
-    const r = await fetch('https://meteorfortheweebs.midnightignite.me/stremio/stream/movie/tt0133093.json', {
+    const baseUrl = (req.query.url || 'https://meteorfortheweebs.midnightignite.me').replace(/\/+$/, '');
+    const r = await fetch(`${baseUrl}/stream/movie/tt0133093.json`, {
       signal: AbortSignal.timeout(15000),
     });
     if (!r.ok) { res.json({ ok: false, message: `HTTP ${r.status}` }); return; }
@@ -1299,6 +1403,23 @@ app.get('/api/test/jacred', async (req, res) => {
   }
 });
 
+// ---- API: Test MediaFusion ----
+app.get('/api/test/mediafusion', async (req, res) => {
+  try {
+    const baseUrl = (req.query.url || '').replace(/\/+$/, '');
+    if (!baseUrl) { res.json({ ok: false, message: 'No URL provided' }); return; }
+    const r = await fetch(`${baseUrl}/D-/stream/movie/tt0133093.json`, {
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!r.ok) { res.json({ ok: false, message: `HTTP ${r.status}` }); return; }
+    const data = await r.json();
+    const count = (data.streams || []).length;
+    res.json({ ok: true, message: `✅ MediaFusion OK — ${count} streams for The Matrix` });
+  } catch (e) {
+    res.json({ ok: false, message: e.message });
+  }
+});
+
 // ---- Stremio routes ----
 app.get('/stremio/:uuid/:config/manifest.json', (req, res) => {
   res.json(MANIFEST);
@@ -1322,6 +1443,6 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`  Server:   http://0.0.0.0:${PORT}`);
   console.log(`  Web UI:   http://0.0.0.0:${PORT}/configure`);
   console.log(`  Manifest: http://0.0.0.0:${PORT}/stremio/:uuid/:config/manifest.json`);
-  console.log(`  Providers: Jackett + Prowlarr + Torrentio`);
+  console.log(`  Providers: Jackett / Prowlarr / Torrentio / Comet / Meteor / Jacred / MediaFusion`);
   console.log('='.repeat(50));
 });
