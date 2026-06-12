@@ -28,7 +28,10 @@ const MANIFEST = {
   types: ['movie', 'series'],
   idPrefixes: ['tt'],
   catalogs: [],
-  behaviorHints: {},
+  behaviorHints: {
+    configurable: true,
+    configurationRequired: true,
+  },
   config: '/configuration',
 };
 
