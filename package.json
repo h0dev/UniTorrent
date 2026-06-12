@@ -1,0 +1,14 @@
+{
+  "name": "jackett-torrserver-addon",
+  "version": "1.0.0",
+  "description": "Stremio addon: search torrents via Jackett, stream via TorrServer",
+  "main": "addon.js",
+  "scripts": {
+    "start": "node addon.js",
+    "start:launch": "node addon.js --launch"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "stremio-addon-sdk": "^1.6.10"
+  }
+}
