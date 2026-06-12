@@ -1,3 +1,12 @@
+---
+title: UniTorrent
+emoji: 🐠
+colorFrom: yellow
+colorTo: purple
+sdk: docker
+pinned: false
+---
+
 # UniTorrent
 
 Multi-provider Stremio addon. Search torrents from **Jackett**, **Prowlarr**, **Torrentio**, **Comet**, **Meteor**, **Jacred**, **MediaFusion** — stream via **TorrServer**.
