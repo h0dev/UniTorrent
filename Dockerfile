@@ -1,17 +1,15 @@
-FROM node:18-alpine
+FROM node:20-alpine
 
 WORKDIR /app
 
-# Install production dependencies first (better layer caching)
-COPY package.json ./
+COPY package.json package-lock.json ./
 RUN npm install --production
 
-# Copy app source
-COPY . .
+COPY src/ ./src/
+COPY data/ ./data/
 
-# Expose HF Spaces port
-EXPOSE 7860
+EXPOSE 3000
 
-ENV PORT=7860
+ENV PORT=3000
 
-CMD ["node", "addon.js"]
+CMD ["node", "src/index.js"]
