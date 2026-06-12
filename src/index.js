@@ -29,111 +29,7 @@ const MANIFEST = {
   idPrefixes: ['tt'],
   catalogs: [],
   behaviorHints: {},
-  config: [
-    {
-      key: 'jackettUrl',
-      type: 'text',
-      default: '',
-      title: 'Jackett URL',
-      description: 'http://192.168.1.100:9117',
-    },
-    {
-      key: 'jackettApiKey',
-      type: 'text',
-      default: '',
-      title: 'Jackett API Key',
-      description: 'From Jackett Dashboard',
-    },
-    {
-      key: 'prowlarrUrl',
-      type: 'text',
-      default: '',
-      title: 'Prowlarr URL',
-      description: 'http://192.168.1.100:9696',
-    },
-    {
-      key: 'prowlarrApiKey',
-      type: 'text',
-      default: '',
-      title: 'Prowlarr API Key',
-      description: 'Settings → General → API Key',
-    },
-    {
-      key: 'torrentioUrl',
-      type: 'text',
-      default: 'https://torrentio.strem.fun',
-      title: 'Torrentio URL',
-    },
-    {
-      key: 'torrentioConfig',
-      type: 'text',
-      default: '',
-      title: 'Torrentio Config String',
-    },
-    {
-      key: 'cometUrl',
-      type: 'text',
-      default: '',
-      title: 'Comet URL',
-      description: 'https://comet.feels.legal',
-    },
-    {
-      key: 'meteorUrl',
-      type: 'text',
-      default: 'https://meteorfortheweebs.midnightignite.me',
-      title: 'Meteor URL',
-    },
-    {
-      key: 'jacredUrl',
-      type: 'text',
-      default: '',
-      title: 'Jacred URL',
-      description: 'http://192.168.1.100:9120',
-    },
-    {
-      key: 'jacredApiKey',
-      type: 'text',
-      default: '',
-      title: 'Jacred API Key',
-    },
-    {
-      key: 'mediafusionUrl',
-      type: 'text',
-      default: 'https://mediafusion.elfhosted.com',
-      title: 'MediaFusion URL',
-    },
-    {
-      key: 'torrServerUrl',
-      type: 'text',
-      default: '',
-      title: 'TorrServer URL',
-      description: 'http://192.168.1.100:8090',
-    },
-    {
-      key: 'torrServerUser',
-      type: 'text',
-      default: '',
-      title: 'TorrServer Username',
-    },
-    {
-      key: 'torrServerPassword',
-      type: 'password',
-      default: '',
-      title: 'TorrServer Password',
-    },
-    {
-      key: 'torrServerType',
-      type: 'text',
-      default: 'official',
-      title: 'TorrServer Type (official/fork)',
-    },
-    {
-      key: 'maxResults',
-      type: 'number',
-      default: 5,
-      title: 'Max Results',
-    },
-  ],
+  config: '/configuration',
 };
 
 // ============================================================================
@@ -1474,6 +1370,10 @@ app.get('/stream/:type/:id.json', async (req, res) => {
 app.get('/configure', (req, res) => {
   res.type('html').send(WEB_HTML);
 });
+// Stremio "Configure" button opens this (config: '/configuration' in manifest)
+app.get('/configuration', (req, res) => {
+  res.type('html').send(WEB_HTML);
+});
 app.get('/', (req, res) => res.redirect('/configure'));
 
 // ---- Health ----
@@ -1515,13 +1415,13 @@ app.get('/api/test/jackett', async (req, res) => {
   try {
     const { url, key } = req.query;
     if (!url || !key) { res.json({ ok: false, message: 'Missing URL or API Key' }); return; }
-    const r = await fetch(`${url.replace(/\/$/, '')}/api/v2.0/indexers?configured=true&apikey=${encodeURIComponent(key)}`, {
-      signal: AbortSignal.timeout(10000),
+    const r = await fetch(`${url.replace(/\/$/, '')}/api/v2.0/indexers/all/results?apikey=${encodeURIComponent(key)}&query=tt0133093`, {
+      signal: AbortSignal.timeout(15000),
     });
     if (!r.ok) { res.json({ ok: false, message: `HTTP ${r.status}` }); return; }
     const data = await r.json();
-    const configured = Array.isArray(data) ? data.filter(i => i.configured).length : 0;
-    res.json({ ok: true, message: `✅ Jackett OK — ${configured} indexers configured` });
+    const count = (data.Results || []).length;
+    res.json({ ok: true, message: `✅ Jackett OK — ${count} results for The Matrix` });
   } catch (e) {
     res.json({ ok: false, message: e.message });
   }
@@ -1581,13 +1481,13 @@ app.get('/api/test/jacred', async (req, res) => {
   try {
     const { url, key } = req.query;
     if (!url || !key) { res.json({ ok: false, message: 'Missing URL or API Key' }); return; }
-    const r = await fetch(`${url.replace(/\/$/, '')}/api/v2.0/indexers?configured=true&apikey=${encodeURIComponent(key)}`, {
-      signal: AbortSignal.timeout(10000),
+    const r = await fetch(`${url.replace(/\/$/, '')}/api/v2.0/indexers/all/results?apikey=${encodeURIComponent(key)}&query=tt0133093`, {
+      signal: AbortSignal.timeout(15000),
     });
     if (!r.ok) { res.json({ ok: false, message: `HTTP ${r.status}` }); return; }
     const data = await r.json();
-    const configured = Array.isArray(data) ? data.filter(i => i.configured).length : 0;
-    res.json({ ok: true, message: `✅ Jacred OK — ${configured} indexers configured` });
+    const count = (data.Results || []).length;
+    res.json({ ok: true, message: `✅ Jacred OK — ${count} results for The Matrix` });
   } catch (e) {
     res.json({ ok: false, message: e.message });
   }
