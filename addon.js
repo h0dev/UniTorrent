@@ -36,7 +36,7 @@ const MANIFEST = {
 //   r: { u: "meteorUrl" },
 //   a: { u: "jacredUrl", k: "jacredApiKey" },
 //   f: { u: "mediafusionUrl" },
-//   s: { u: "torrServerUrl", a: "user:pass" },
+//   s: { u: "torrServerUrl", a: "user:pass", t: "official|fork" },
 //   m: 5  // maxResults
 // }
 function encodeConfig(config) {
@@ -52,6 +52,9 @@ function encodeConfig(config) {
     c.s = { u: config.torrServerUrl.replace(/\/$/, '') };
     if (config.torrServerUser || config.torrServerPassword) {
       c.s.a = `${config.torrServerUser || ''}:${config.torrServerPassword || ''}`;
+    }
+    if (config.torrServerType && config.torrServerType !== 'official') {
+      c.s.t = config.torrServerType;
     }
   }
   c.m = Math.min(Math.max(parseInt(config.maxResults || '5', 10) || 5, 1), 20);
@@ -84,6 +87,7 @@ function decodeConfig(b64) {
       if (typeof d.s === 'string') { cfg.torrServerUrl = d.s; }
       else {
         cfg.torrServerUrl = d.s.u;
+        cfg.torrServerType = d.s.t || 'official';
         if (d.s.a) {
           const sep = d.s.a.indexOf(':');
           if (sep >= 0) { cfg.torrServerUser = d.s.a.slice(0, sep); cfg.torrServerPassword = d.s.a.slice(sep + 1); }
@@ -164,7 +168,9 @@ function buildStreamEntry(r, cfg) {
       const p = encodeURIComponent(cfg.torrServerPassword || '');
       baseUrl = baseUrl.replace(/^(https?:\/\/)/i, `$1${u}:${p}@`);
     }
-    stream.url = `${baseUrl}/stream?link=${encodeURIComponent(r.MagnetUri)}&index=1&play`;
+    // Use MagnetUri if available, otherwise construct from InfoHash
+    const torrentLink = r.MagnetUri || (r.InfoHash ? `magnet:?xt=urn:btih:${r.InfoHash}` : '');
+    stream.url = `${baseUrl}/stream?link=${encodeURIComponent(torrentLink)}&index=1&play`;
     stream.title = label;
     stream.behaviorHints.notWebReady = false;
   }
@@ -234,7 +240,7 @@ async function searchTorrentio(cfg, type, id) {
     MagnetUri: '', // Torrentio doesn't provide magnet URIs
     CategoryDesc: '',
     _provider: 'Torrentio',
-    _torrentioStream: s, // keep original for direct pass-through
+    _rawStream: s, // keep original for direct pass-through
   }));
 }
 
@@ -348,6 +354,10 @@ async function handleStream(config, type, id) {
 
     const maxResults = config.maxResults || 5;
     const streams = unique.slice(0, maxResults).map(r => {
+      // If TorrServer configured, route EVERYTHING through TorrServer
+      if (config.torrServerUrl) {
+        return buildStreamEntry(r, config);
+      }
       // Proxy-style providers (Torrentio, Comet, Meteor, MediaFusion) — pass through raw stream format
       if ((r._provider === 'Torrentio' || r._provider === 'Comet' || r._provider === 'Meteor' || r._provider === 'MediaFusion') && r._rawStream) {
         const s = { ...r._rawStream };
@@ -997,7 +1007,15 @@ const WEB_HTML = `<!DOCTYPE html>
       <div class="form-group" style="margin-top:16px">
         <label>TorrServer URL (optional)</label>
         <input type="url" id="torrServerUrl" placeholder="http://192.168.1.100:8090">
-        <div class="hint">Supports official and <a href="https://github.com/9000000/TorrServer" target="_blank">9000000/TorrServer</a> fork (API-compatible)</div>
+        <div class="hint">Your TorrServer address. Select version below (Official vs Fork 9000000)</div>
+      </div>
+      <div class="form-group" style="margin-top:16px">
+        <label>TorrServer Version</label>
+        <select id="torrServerType">
+          <option value="official">Official — /stream?link=...</option>
+          <option value="fork">9000000 Fork — /stream?link=... (series handling differs)</option>
+        </select>
+        <div class="hint">Fork 9000000 processes TV series differently from official. Choose <strong>Fork</strong> if you run <code>github.com/9000000/TorrServer</code></div>
       </div>
       <div class="form-group" style="margin-top:16px">
         <label>TorrServer Username (if auth enabled)</label>
@@ -1109,6 +1127,7 @@ function collectConfig() {
     torrServerUrl: document.getElementById('torrServerUrl').value,
     torrServerUser: document.getElementById('torrServerUser').value,
     torrServerPassword: document.getElementById('torrServerPassword').value,
+    torrServerType: document.getElementById('torrServerType').value,
     maxResults: document.getElementById('maxResults').value,
   };
 }
@@ -1313,6 +1332,7 @@ app.post('/api/generate', (req, res) => {
     torrServerUrl: body.torrServerUrl || '',
     torrServerUser: body.torrServerUser || '',
     torrServerPassword: body.torrServerPassword || '',
+    torrServerType: body.torrServerType || 'official',
     maxResults: body.maxResults || 5,
   };
   const uuid = generateUUID();
