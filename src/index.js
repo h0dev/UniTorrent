@@ -224,10 +224,15 @@ async function searchProwlarr(cfg, imdbId, type) {
     .sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
 }
 
+// ---- Helper: strip /manifest.json suffix and trailing slash ----
+function stripManifestPath(url) {
+  return url.replace(/\/manifest\.json$/i, '').replace(/\/+$/, '');
+}
+
 // ---- Torrentio (HTTP proxy) ----
 async function searchTorrentio(cfg, type, id) {
   if (!cfg.torrentioUrl) return [];
-  const baseUrl = cfg.torrentioUrl.replace(/\/+$/, '');
+  const baseUrl = stripManifestPath(cfg.torrentioUrl);
   const configPart = cfg.torrentioConfig || '';
   const url = configPart
     ? `${baseUrl}/${configPart}/stream/${type}/${id}.json`
@@ -250,7 +255,7 @@ async function searchTorrentio(cfg, type, id) {
 // ---- Comet (public or self-hosted) ----
 async function searchComet(cfg, type, id) {
   if (!cfg.cometUrl) return [];
-  const url = `${cfg.cometUrl.replace(/\/+$/, '')}/stream/${type}/${id}.json`;
+  const url = `${stripManifestPath(cfg.cometUrl)}/stream/${type}/${id}.json`;
   const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
   if (!res.ok) throw new Error(`Comet HTTP ${res.status}`);
   const data = await res.json();
@@ -270,7 +275,7 @@ async function searchComet(cfg, type, id) {
 // ---- MediaFusion ----
 async function searchMediaFusion(cfg, type, id) {
   if (!cfg.mediafusionUrl) return [];
-  const url = `${cfg.mediafusionUrl.replace(/\/+$/, '')}/D-/stream/${type}/${id}.json`;
+  const url = `${stripManifestPath(cfg.mediafusionUrl)}/D-/stream/${type}/${id}.json`;
   const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
   if (!res.ok) throw new Error(`MediaFusion HTTP ${res.status}`);
   const data = await res.json();
@@ -877,14 +882,14 @@ const WEB_HTML = `<!DOCTYPE html>
           </label>
         </div>
         <div class="form-group">
-          <label>Torrentio URL <span class="required">*</span></label>
+          <label>Torrentio Manifest URL <span class="required">*</span></label>
           <input type="url" id="torrentioUrl" value="https://torrentio.strem.fun">
-          <div class="hint"><code>https://torrentio.strem.fun</code> — Torrentio manifest link. Use self-hosted or ElfHosted instance.</div>
+          <div class="hint">Paste full manifest URL. Clean: <code>https://torrentio.strem.fun/manifest.json</code>. With config: <code>https://torrentio.strem.fun/&lt;config&gt;/manifest.json</code></div>
         </div>
         <div class="form-group">
-          <label>Torrentio Config String (optional)</label>
-          <input type="text" id="torrentioConfig" placeholder="realdebrid=KEY|providers=yts,eztv|limit=5">
-          <div class="hint">Leave empty for default. Format: <code>realdebrid=KEY|providers=...|limit=5</code></div>
+          <label>Torrentio Config <span class="optional">(if needed)</span></label>
+          <input type="text" id="torrentioConfig" placeholder="Base64 config from URL">
+          <div class="hint">If you pasted the full URL above with config, leave this empty. Otherwise paste config string here.</div>
         </div>
       </div>
     </div>
@@ -903,9 +908,9 @@ const WEB_HTML = `<!DOCTYPE html>
           </label>
         </div>
         <div class="form-group">
-          <label>Comet URL <span class="required">*</span></label>
-          <input type="url" id="cometUrl" placeholder="https://comet.feels.legal">
-          <div class="hint">Public instances: <code>https://comet.feels.legal</code>, <code>https://comet.elfhosted.com</code>. Or self-host.</div>
+          <label>Comet Manifest URL <span class="required">*</span></label>
+          <input type="url" id="cometUrl" placeholder="https://comet.feels.legal/manifest.json">
+          <div class="hint">Paste full manifest URL. Clean: <code>https://comet.feels.legal/manifest.json</code></div>
         </div>
         <div style="display:flex;gap:8px">
           <button class="btn btn-secondary btn-sm" onclick="testComet()">🔄 Test</button>
@@ -956,9 +961,9 @@ const WEB_HTML = `<!DOCTYPE html>
           </label>
         </div>
         <div class="form-group">
-          <label>MediaFusion URL <span class="required">*</span></label>
+          <label>MediaFusion Manifest URL <span class="required">*</span></label>
           <input type="url" id="mediafusionUrl" value="https://mediafusion.elfhosted.com">
-          <div class="hint"><code>https://mediafusion.elfhosted.com</code> — MediaFusion manifest link. Or <a href="https://github.com/mhdzumair/MediaFusion" target="_blank">self-host</a>.</div>
+          <div class="hint">Paste full manifest URL. Clean: <code>https://mediafusion.elfhosted.com/manifest.json</code></div>
         </div>
         <div style="display:flex;gap:8px">
           <button class="btn btn-secondary btn-sm" onclick="testMediaFusion()">🔄 Test</button>
@@ -1421,7 +1426,7 @@ app.get('/api/test/prowlarr', async (req, res) => {
 app.get('/api/test/comet', async (req, res) => {
   try {
     const { url } = req.query;
-    const r = await fetch(`${url.replace(/\/+$/, '')}/stream/movie/tt0133093.json`, {
+    const r = await fetch(`${stripManifestPath(url)}/stream/movie/tt0133093.json`, {
       signal: AbortSignal.timeout(15000),
     });
     if (!r.ok) { res.json({ ok: false, message: `HTTP ${r.status}` }); return; }
@@ -1453,7 +1458,7 @@ app.get('/api/test/jacred', async (req, res) => {
 // ---- API: Test MediaFusion ----
 app.get('/api/test/mediafusion', async (req, res) => {
   try {
-    const baseUrl = (req.query.url || '').replace(/\/+$/, '');
+    const baseUrl = stripManifestPath(req.query.url || '');
     if (!baseUrl) { res.json({ ok: false, message: 'No URL provided' }); return; }
     const r = await fetch(`${baseUrl}/D-/stream/movie/tt0133093.json`, {
       signal: AbortSignal.timeout(15000),
