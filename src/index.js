@@ -591,10 +591,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
         <div class="form-group">
           <label>Type</label>
           <select id="torrServerType">
-            <option value="official">Official</option>
-            <option value="fork">Fork</option>
+            <option value="official">Official — github.com/YouROK/TorrServer</option>
+            <option value="fork">Fork — github.com/9000000/TorrServer</option>
           </select>
-          <div class="hint"><a href="https://github.com/YouROK/TorrServer" target="_blank" style="color:var(--accent)">Official</a> · <a href="https://github.com/Ilia-code/TorrServer" target="_blank" style="color:var(--accent)">Fork</a></div>
+          <div class="hint"><a href="https://github.com/YouROK/TorrServer" target="_blank" style="color:var(--accent)">Official</a> · <a href="https://github.com/9000000/TorrServer" target="_blank" style="color:var(--accent)">Fork</a></div>
         </div>
       </div>
     </div>
