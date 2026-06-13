@@ -208,6 +208,45 @@ function buildStreamEntry(r, cfg) {
 // ---- Jackett (Torznab API) ----
 const torznabParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
 
+// Extract infoHash + announce URLs from .torrent → magnet URI
+function torrentMeta(tfBuf) {
+  try {
+    const s = tfBuf.toString('binary');
+    // Find announce URLs (simple scan for http/https/udp strings)
+    const urls = [];
+    const re = /([a-z]+):\/\/[^\s"']+/gi;
+    let m;
+    while ((m = re.exec(s)) !== null) {
+      const u = m[0];
+      if ((u.startsWith('http://') || u.startsWith('https://') || u.startsWith('udp://')) && u.includes('announce')) {
+        if (!urls.includes(u)) urls.push(u);
+      }
+    }
+    // Extract info dict → SHA1 → infoHash
+    const infoIdx = s.indexOf('4:info');
+    if (infoIdx === -1) return null;
+    const start = infoIdx + 6;
+    let depth = 0, i = start - 1;
+    if (s[i] !== 'd') return null;
+    depth = 1; i++;
+    while (depth > 0 && i < s.length) {
+      const ch = s[i];
+      if (ch === 'e') { depth--; i++; continue; }
+      if (ch === 'd' || ch === 'l') { depth++; i++; continue; }
+      if (ch === 'i') { while (i < s.length && s[i] !== 'e') i++; i++; continue; }
+      if (ch >= '0' && ch <= '9') {
+        const colon = s.indexOf(':', i);
+        if (colon === -1) return null;
+        i = colon + 1 + parseInt(s.slice(i, colon), 10);
+        continue;
+      }
+      i++;
+    }
+    const infoHash = crypto.createHash('sha1').update(tfBuf.slice(start - 1, i)).digest('hex').toLowerCase();
+    return { infoHash, announceUrls: urls };
+  } catch { return null; }
+}
+
 async function searchJackett(cfg, type, imdbId) {
   if (!cfg.jackettUrl || !cfg.jackettApiKey) return [];
   const t = type === 'series' ? 'tvsearch' : 'movie';
@@ -221,22 +260,41 @@ async function searchJackett(cfg, type, imdbId) {
   const items = parsed?.rss?.channel?.item;
   if (!items) return [];
   const arr = Array.isArray(items) ? items : [items];
-  return arr.map(item => {
+  const results = arr.map(item => {
     const attrs = {};
-    if (item['torznab:attr']) {
-      (Array.isArray(item['torznab:attr']) ? item['torznab:attr'] : [item['torznab:attr']]).forEach(a => { attrs[a['@_name']] = a['@_value']; });
+    const rawAttr = item['torznab:attr'];
+    if (rawAttr) {
+      (Array.isArray(rawAttr) ? rawAttr : [rawAttr]).forEach(a => { attrs[a['@_name']] = a['@_value']; });
     }
     return {
       Title: item.title || '',
       Seeders: parseInt(attrs.seeders || '0', 10),
-      Size: parseInt(attrs.size || '0', 10),
+      Size: parseInt(item.size || attrs.size || '0', 10),
       InfoHash: (attrs.infohash || '').toLowerCase(),
       MagnetUri: attrs.magneturl || item.link || '',
       CategoryDesc: attrs.category || '',
       _provider: 'Jackett',
     };
-  }).filter(r => r.MagnetUri || r.InfoHash)
-    .sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
+  }).filter(r => r.MagnetUri || r.InfoHash);
+
+  // HTTP download URLs → fetch .torrent → magnet URI with announce (preserves passkey)
+  const httpList = results.filter(r => r.MagnetUri && !r.MagnetUri.startsWith('magnet:') && !r.InfoHash);
+  if (httpList.length > 0) {
+    await Promise.all(httpList.slice(0, 5).map(async r => {
+      try {
+        const tf = await fetch(r.MagnetUri, { signal: AbortSignal.timeout(10000) });
+        if (!tf.ok) return;
+        const buf = Buffer.from(await tf.arrayBuffer());
+        const meta = torrentMeta(buf);
+        if (!meta || !meta.infoHash) return;
+        r.InfoHash = meta.infoHash;
+        const tr = meta.announceUrls.filter(Boolean).map(u => `tr=${encodeURIComponent(u)}`).join('&');
+        r.MagnetUri = `magnet:?xt=urn:btih:${meta.infoHash}&dn=${encodeURIComponent(r.Title || '')}${tr ? '&' + tr : ''}`;
+      } catch {}
+    }));
+  }
+
+  return results.sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
 }
 
 // ---- Prowlarr ----
@@ -358,22 +416,40 @@ async function searchJacred(cfg, type, imdbId) {
   const items = parsed?.rss?.channel?.item;
   if (!items) return [];
   const arr = Array.isArray(items) ? items : [items];
-  return arr.map(item => {
+  const results = arr.map(item => {
     const attrs = {};
-    if (item['torznab:attr']) {
-      (Array.isArray(item['torznab:attr']) ? item['torznab:attr'] : [item['torznab:attr']]).forEach(a => { attrs[a['@_name']] = a['@_value']; });
+    const rawAttr = item['torznab:attr'];
+    if (rawAttr) {
+      (Array.isArray(rawAttr) ? rawAttr : [rawAttr]).forEach(a => { attrs[a['@_name']] = a['@_value']; });
     }
     return {
       Title: item.title || '',
       Seeders: parseInt(attrs.seeders || '0', 10),
-      Size: parseInt(attrs.size || '0', 10),
+      Size: parseInt(item.size || attrs.size || '0', 10),
       InfoHash: (attrs.infohash || '').toLowerCase(),
       MagnetUri: attrs.magneturl || item.link || '',
       CategoryDesc: attrs.category || '',
       _provider: 'Jacred',
     };
-  }).filter(r => r.MagnetUri || r.InfoHash)
-    .sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
+  }).filter(r => r.MagnetUri || r.InfoHash);
+
+  const httpList = results.filter(r => r.MagnetUri && !r.MagnetUri.startsWith('magnet:') && !r.InfoHash);
+  if (httpList.length > 0) {
+    await Promise.all(httpList.slice(0, 5).map(async r => {
+      try {
+        const tf = await fetch(r.MagnetUri, { signal: AbortSignal.timeout(10000) });
+        if (!tf.ok) return;
+        const buf = Buffer.from(await tf.arrayBuffer());
+        const meta = torrentMeta(buf);
+        if (!meta || !meta.infoHash) return;
+        r.InfoHash = meta.infoHash;
+        const tr = meta.announceUrls.filter(Boolean).map(u => `tr=${encodeURIComponent(u)}`).join('&');
+        r.MagnetUri = `magnet:?xt=urn:btih:${meta.infoHash}&dn=${encodeURIComponent(r.Title || '')}${tr ? '&' + tr : ''}`;
+      } catch {}
+    }));
+  }
+
+  return results.sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
 }
 
 // ============================================================================
@@ -974,6 +1050,15 @@ async function testMediafusion() {
 
 const app = express();
 app.set('trust proxy', true);
+// CORS — allow Stremio web + any origin
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
