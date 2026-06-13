@@ -8,8 +8,16 @@
     "dev": "node --watch src/index.js"
   },
   "dependencies": {
-    "express": "^4.18.2"
+    "express": "^4.18.2",
+    "fast-xml-parser": "^5.8.0"
   },
-  "keywords": ["stremio", "torrent", "torrserver", "jackett", "prowlarr", "torrentio"],
+  "keywords": [
+    "stremio",
+    "torrent",
+    "torrserver",
+    "jackett",
+    "prowlarr",
+    "torrentio"
+  ],
   "license": "MIT"
 }

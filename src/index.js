@@ -8,6 +8,7 @@
 
 const crypto = require('crypto');
 const express = require('express');
+const { XMLParser } = require('fast-xml-parser');
 
 // ============================================================================
 // 1. DEBUG & CONFIG
@@ -204,104 +205,38 @@ function buildStreamEntry(r, cfg) {
   return stream;
 }
 
-function infoHashFromMagnet(link) {
-  if (!link) return '';
-  const m = link.match(/urn:btih:([a-f0-9]{40})/i);
-  return m ? m[1].toLowerCase() : '';
-}
+// ---- Jackett (Torznab API) ----
+const torznabParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
 
-// Parse .torrent → { infoHash, announceUrls[] }
-function parseTorrentMeta(buf) {
-  try {
-    const s = buf.toString('binary');
-    const infoIdx = s.indexOf('4:info');
-    if (infoIdx === -1) return null;
-    const infoStart = infoIdx + 6; // after '4:info'
-    let depth = 0, i = infoStart - 1;
-    if (s[i] !== 'd') return null;
-    depth = 1; i++;
-    while (depth > 0 && i < s.length) {
-      const ch = s[i];
-      if (ch === 'e') { depth--; i++; continue; }
-      if (ch === 'd' || ch === 'l') { depth++; i++; continue; }
-      if (ch === 'i') { while (i < s.length && s[i] !== 'e') i++; i++; continue; }
-      if (ch >= '0' && ch <= '9') {
-        const colon = s.indexOf(':', i);
-        if (colon === -1) return null;
-        i = colon + 1 + parseInt(s.slice(i, colon), 10);
-        continue;
-      }
-      i++;
-    }
-    const infoHash = crypto.createHash('sha1').update(buf.slice(infoStart - 1, i)).digest('hex').toLowerCase();
-
-    // Extract announce URLs (from announce + announce-list)
-    const urls = [];
-    const annRe = /(\d+):([^e]+?)e/g;
-    let m;
-    while ((m = annRe.exec(s)) !== null) {
-      const keyLen = parseInt(m[1], 10);
-      const key = s.slice(m.index + m[1].length + 1, m.index + m[1].length + 1 + keyLen);
-      if (key === 'announce') {
-        const valStart = m.index + m[1].length + 1 + keyLen;
-        const valLen = parseInt(s.slice(valStart), 10);
-        const colon2 = s.indexOf(':', valStart);
-        if (colon2 !== -1) {
-          urls.push(s.slice(colon2 + 1, colon2 + 1 + valLen));
-        }
-        break;
-      }
-    }
-    // Simpler: scan for announce strings directly
-    const s2 = s.replace(/e/g, ' e ').replace(/l/g, ' l ').replace(/d/g, ' d ');
-    const parts = s2.match(/(?:\d+:)+[^\s]+/g) || [];
-    for (const p of parts) {
-      const afterColon = p.slice(p.indexOf(':') + 1);
-      if (afterColon.startsWith('http://') || afterColon.startsWith('https://') || afterColon.startsWith('udp://')) {
-        if (!urls.includes(afterColon)) urls.push(afterColon);
-      }
-    }
-
-    return { infoHash, announceUrls: [...new Set(urls)] };
-  } catch { return null; }
-}
-
-// ---- Jackett ----
-async function searchJackett(cfg, imdbId) {
+async function searchJackett(cfg, type, imdbId) {
   if (!cfg.jackettUrl || !cfg.jackettApiKey) return [];
-  const params = new URLSearchParams({ apikey: cfg.jackettApiKey, imdbid: imdbId });
-  const url = `${cfg.jackettUrl}/api/v2.0/indexers/all/results?${params}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(20000), headers: { Accept: 'application/json' } });
+  const t = type === 'series' ? 'tvsearch' : 'movie';
+  const params = new URLSearchParams({ apikey: cfg.jackettApiKey, t, cat: '', imdbid: imdbId, extended: '1' });
+  const url = `${cfg.jackettUrl.replace(/\/+$/, '')}/api/v2.0/indexers/all/results/torznab/api?${params}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
   if (!res.ok) throw new Error(`Jackett HTTP ${res.status}`);
-  const data = await res.json();
-  const results = (data.Results || []).map(r => ({
-    Title: r.Title,
-    Seeders: r.Seeders || 0,
-    Size: r.Size || 0,
-    InfoHash: r.InfoHash || infoHashFromMagnet(r.Link),
-    MagnetUri: r.Link || '',
-    CategoryDesc: r.CategoryDesc || '',
-    _provider: 'Jackett',
-  })).filter(r => r.MagnetUri || r.InfoHash);
-
-  // For HTTP download URLs, fetch .torrent → create magnet URI with tracker announce (preserves passkey)
-  const httpResults = results.filter(r => r.MagnetUri && !r.MagnetUri.startsWith('magnet:') && !r.InfoHash);
-  if (httpResults.length > 0) {
-    await Promise.all(httpResults.slice(0, 5).map(async r => {
-      try {
-        const tf = await fetch(r.MagnetUri, { signal: AbortSignal.timeout(10000) });
-        if (!tf.ok) return;
-        const buf = Buffer.from(await tf.arrayBuffer());
-        const meta = parseTorrentMeta(buf);
-        if (!meta || !meta.infoHash) return;
-        r.InfoHash = meta.infoHash;
-        const trParams = meta.announceUrls.filter(Boolean).map(u => `tr=${encodeURIComponent(u)}`).join('&');
-        r.MagnetUri = `magnet:?xt=urn:btih:${meta.infoHash}&dn=${encodeURIComponent(r.Title || '')}${trParams ? '&' + trParams : ''}`;
-      } catch {}
-    }));
-  }
-
-  return results.sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
+  const text = await res.text();
+  let parsed;
+  try { parsed = torznabParser.parse(text); } catch { return []; }
+  const items = parsed?.rss?.channel?.item;
+  if (!items) return [];
+  const arr = Array.isArray(items) ? items : [items];
+  return arr.map(item => {
+    const attrs = {};
+    if (item['torznab:attr']) {
+      (Array.isArray(item['torznab:attr']) ? item['torznab:attr'] : [item['torznab:attr']]).forEach(a => { attrs[a['@_name']] = a['@_value']; });
+    }
+    return {
+      Title: item.title || '',
+      Seeders: parseInt(attrs.seeders || '0', 10),
+      Size: parseInt(attrs.size || '0', 10),
+      InfoHash: (attrs.infohash || '').toLowerCase(),
+      MagnetUri: attrs.magneturl || item.link || '',
+      CategoryDesc: attrs.category || '',
+      _provider: 'Jackett',
+    };
+  }).filter(r => r.MagnetUri || r.InfoHash)
+    .sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
 }
 
 // ---- Prowlarr ----
@@ -410,40 +345,35 @@ async function searchMediaFusion(cfg, type, id) {
 }
 
 // ---- Jacred (Jackett-compatible) ----
-async function searchJacred(cfg, imdbId) {
+async function searchJacred(cfg, type, imdbId) {
   if (!cfg.jacredUrl || !cfg.jacredApiKey) return [];
-  const params = new URLSearchParams({ apikey: cfg.jacredApiKey, query: imdbId });
-  const url = `${cfg.jacredUrl}/api/v2.0/indexers/all/results?${params}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(20000), headers: { Accept: 'application/json' } });
+  const t = type === 'series' ? 'tvsearch' : 'movie';
+  const params = new URLSearchParams({ apikey: cfg.jacredApiKey, t, cat: '', imdbid: imdbId, extended: '1' });
+  const url = `${cfg.jacredUrl.replace(/\/+$/, '')}/api/v2.0/indexers/all/results/torznab/api?${params}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
   if (!res.ok) throw new Error(`Jacred HTTP ${res.status}`);
-  const data = await res.json();
-  const results = (data.Results || []).map(r => ({
-    Title: r.Title,
-    Seeders: r.Seeders || 0,
-    Size: r.Size || 0,
-    InfoHash: r.InfoHash || infoHashFromMagnet(r.Link),
-    MagnetUri: r.Link || '',
-    CategoryDesc: r.CategoryDesc || '',
-    _provider: 'Jacred',
-  })).filter(r => r.MagnetUri || r.InfoHash);
-
-  const httpResults = results.filter(r => r.MagnetUri && !r.MagnetUri.startsWith('magnet:') && !r.InfoHash);
-  if (httpResults.length > 0) {
-    await Promise.all(httpResults.slice(0, 5).map(async r => {
-      try {
-        const tf = await fetch(r.MagnetUri, { signal: AbortSignal.timeout(10000) });
-        if (!tf.ok) return;
-        const buf = Buffer.from(await tf.arrayBuffer());
-        const meta = parseTorrentMeta(buf);
-        if (!meta || !meta.infoHash) return;
-        r.InfoHash = meta.infoHash;
-        const trParams = meta.announceUrls.filter(Boolean).map(u => `tr=${encodeURIComponent(u)}`).join('&');
-        r.MagnetUri = `magnet:?xt=urn:btih:${meta.infoHash}&dn=${encodeURIComponent(r.Title || '')}${trParams ? '&' + trParams : ''}`;
-      } catch {}
-    }));
-  }
-
-  return results.sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
+  const text = await res.text();
+  let parsed;
+  try { parsed = torznabParser.parse(text); } catch { return []; }
+  const items = parsed?.rss?.channel?.item;
+  if (!items) return [];
+  const arr = Array.isArray(items) ? items : [items];
+  return arr.map(item => {
+    const attrs = {};
+    if (item['torznab:attr']) {
+      (Array.isArray(item['torznab:attr']) ? item['torznab:attr'] : [item['torznab:attr']]).forEach(a => { attrs[a['@_name']] = a['@_value']; });
+    }
+    return {
+      Title: item.title || '',
+      Seeders: parseInt(attrs.seeders || '0', 10),
+      Size: parseInt(attrs.size || '0', 10),
+      InfoHash: (attrs.infohash || '').toLowerCase(),
+      MagnetUri: attrs.magneturl || item.link || '',
+      CategoryDesc: attrs.category || '',
+      _provider: 'Jacred',
+    };
+  }).filter(r => r.MagnetUri || r.InfoHash)
+    .sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
 }
 
 // ============================================================================
@@ -464,11 +394,11 @@ async function handleStream(config, type, id) {
 
     // Query all providers in parallel
     const promises = [];
-    if (config.jackettUrl) { log(`  + Jackett: ${config.jackettUrl}`); promises.push(searchJackett(config, imdbId)); }
+    if (config.jackettUrl) { log(`  + Jackett: ${config.jackettUrl}`); promises.push(searchJackett(config, type, imdbId)); }
     if (config.prowlarrUrl) { log(`  + Prowlarr: ${config.prowlarrUrl}`); promises.push(searchProwlarr(config, imdbId, type)); }
     if (config.torrentioUrl) { log(`  + Torrentio: ${config.torrentioUrl}`); promises.push(searchTorrentio(config, type, id)); }
     if (config.cometUrl) { log(`  + Comet: ${config.cometUrl}`); promises.push(searchComet(config, type, id)); }
-    if (config.jacredUrl) { log(`  + Jacred: ${config.jacredUrl}`); promises.push(searchJacred(config, imdbId)); }
+    if (config.jacredUrl) { log(`  + Jacred: ${config.jacredUrl}`); promises.push(searchJacred(config, type, imdbId)); }
     if (config.mediafusionUrl) { log(`  + MediaFusion: ${config.mediafusionUrl}`); promises.push(searchMediaFusion(config, type, id)); }
 
     if (promises.length === 0) {
