@@ -594,6 +594,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
             <option value="official">Official</option>
             <option value="fork">Fork</option>
           </select>
+          <div class="hint"><a href="https://github.com/YouROK/TorrServer" target="_blank" style="color:var(--accent)">Official</a> · <a href="https://github.com/Ilia-code/TorrServer" target="_blank" style="color:var(--accent)">Fork</a></div>
         </div>
       </div>
     </div>
