@@ -386,7 +386,7 @@ async function searchJacred(cfg, imdbId) {
   const res = await fetch(url, { signal: AbortSignal.timeout(20000), headers: { Accept: 'application/json' } });
   if (!res.ok) throw new Error(`Jacred HTTP ${res.status}`);
   const data = await res.json();
-  return (data.Results || []).map(r => ({
+  const results = (data.Results || []).map(r => ({
     Title: r.Title,
     Seeders: r.Seeders || 0,
     Size: r.Size || 0,
@@ -394,8 +394,24 @@ async function searchJacred(cfg, imdbId) {
     MagnetUri: r.Link || '',
     CategoryDesc: r.CategoryDesc || '',
     _provider: 'Jacred',
-  })).filter(r => r.MagnetUri || r.InfoHash)
-    .sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
+  })).filter(r => r.MagnetUri || r.InfoHash);
+
+  // For HTTP download URLs, fetch .torrent → extract infoHash → magnet URI
+  const needFetch = results.filter(r => r.MagnetUri && !r.MagnetUri.startsWith('magnet:') && !r.InfoHash);
+  if (needFetch.length > 0) {
+    await Promise.all(needFetch.slice(0, 5).map(async r => {
+      try {
+        const tf = await fetch(r.MagnetUri, { signal: AbortSignal.timeout(10000) });
+        if (tf.ok) {
+          const buf = Buffer.from(await tf.arrayBuffer());
+          const ih = infoHashFromTorrent(buf);
+          if (ih) { r.InfoHash = ih; r.MagnetUri = `magnet:?xt=urn:btih:${ih}&dn=${encodeURIComponent(r.Title || '')}`; }
+        }
+      } catch {}
+    }));
+  }
+
+  return results.sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
 }
 
 // ============================================================================
