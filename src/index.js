@@ -286,8 +286,8 @@ async function searchJackett(cfg, type, imdbId) {
         const meta = torrentMeta(Buffer.from(await tf.arrayBuffer()));
         if (!meta || !meta.infoHash) return;
         r.InfoHash = meta.infoHash;
-        const tr = meta.announceUrls.filter(Boolean).map(u => `tr=${encodeURIComponent(u)}`).join('&');
-        r.MagnetUri = `magnet:?xt=urn:btih:${meta.infoHash}&dn=${encodeURIComponent(r.Title || '')}${tr ? '&' + tr : ''}`;
+        r.MagnetUri = `magnet:?xt=urn:btih:${meta.infoHash}&dn=${r.Title || ''}`;
+        if (meta.announceUrls.length) r.MagnetUri += `&tr=${meta.announceUrls[0]}`;
       } catch {}
     }));
   }
@@ -440,8 +440,8 @@ async function searchJacred(cfg, type, imdbId) {
         const meta = torrentMeta(Buffer.from(await tf.arrayBuffer()));
         if (!meta || !meta.infoHash) return;
         r.InfoHash = meta.infoHash;
-        const tr = meta.announceUrls.filter(Boolean).map(u => `tr=${encodeURIComponent(u)}`).join('&');
-        r.MagnetUri = `magnet:?xt=urn:btih:${meta.infoHash}&dn=${encodeURIComponent(r.Title || '')}${tr ? '&' + tr : ''}`;
+        r.MagnetUri = `magnet:?xt=urn:btih:${meta.infoHash}&dn=${r.Title || ''}`;
+        if (meta.announceUrls.length) r.MagnetUri += `&tr=${meta.announceUrls[0]}`;
       } catch {}
     }));
   }
