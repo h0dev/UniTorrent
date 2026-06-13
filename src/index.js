@@ -393,695 +393,266 @@ const WEB_HTML = `<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>UniTorrent - Multi-Provider Stremio Addon</title>
-<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  /* ===== CSS Variables / Theme ===== */
-  :root {
-    --bg: #0a0a0f;
-    --bg-card: #12121a;
-    --bg-card-hover: #1a1a28;
-    --bg-sidebar: #0d0d15;
-    --border: #1e1e30;
-    --border-light: #2a2a40;
-    --text: #e0e0e8;
-    --text-muted: #8888a0;
-    --text-dim: #555570;
-    --primary: #7c3aed;
-    --primary-glow: rgba(124, 58, 237, 0.15);
-    --primary-hover: #8b5cf6;
-    --accent: #f59e0b;
-    --accent-glow: rgba(245, 158, 11, 0.15);
-    --success: #10b981;
-    --error: #ef4444;
-    --radius: 12px;
-    --radius-sm: 8px;
-    --sidebar-w: 240px;
-    --font-heading: 'Outfit', sans-serif;
-    --font-body: 'Plus Jakarta Sans', sans-serif;
-  }
-
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-
-  body {
-    font-family: var(--font-body);
-    background: var(--bg);
-    color: var(--text);
-    min-height: 100vh;
-    display: flex;
-    position: relative;
-    overflow-x: hidden;
-  }
-
-  /* Film grain overlay */
-  body::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    opacity: 0.03;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
-    pointer-events: none;
-    z-index: 9999;
-  }
-
-  /* Gradient orbs in background */
-  .orb {
-    position: fixed;
-    border-radius: 50%;
-    filter: blur(120px);
-    pointer-events: none;
-    z-index: 0;
-  }
-  .orb-1 { width: 600px; height: 600px; background: rgba(124, 58, 237, 0.08); top: -200px; right: -200px; }
-  .orb-2 { width: 500px; height: 500px; background: rgba(245, 158, 11, 0.06); bottom: -150px; left: -150px; }
-
-  /* ===== Sidebar ===== */
-  .sidebar {
-    position: fixed;
-    top: 0; left: 0;
-    width: var(--sidebar-w);
-    height: 100vh;
-    background: var(--bg-sidebar);
-    border-right: 1px solid var(--border);
-    z-index: 100;
-    display: flex;
-    flex-direction: column;
-    padding: 20px 16px;
-  }
-  .sidebar-brand {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 12px 24px;
-    margin-bottom: 16px;
-    border-bottom: 1px solid var(--border);
-  }
-  .sidebar-brand .logo {
-    width: 36px; height: 36px;
-    background: linear-gradient(135deg, var(--primary), var(--accent));
-    border-radius: 10px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 18px;
-    font-weight: 700;
-    color: #fff;
-  }
-  .sidebar-brand h1 {
-    font-family: var(--font-heading);
-    font-size: 18px;
-    font-weight: 700;
-    background: linear-gradient(135deg, #c4b5fd, #fde68a);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
-  .sidebar-brand small { font-size: 10px; color: var(--text-dim); display: block; -webkit-text-fill-color: var(--text-dim); }
-
-  .nav-item {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 10px 12px;
-    border-radius: var(--radius-sm);
-    color: var(--text-muted);
-    text-decoration: none;
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s;
-    margin-bottom: 2px;
-    border: none;
-    background: none;
-    width: 100%;
-    text-align: left;
-  }
-  .nav-item:hover { background: var(--bg-card); color: var(--text); }
-  .nav-item.active { background: var(--primary-glow); color: var(--primary); font-weight: 600; }
-  .nav-item .icon { font-size: 18px; width: 24px; text-align: center; }
-  .nav-divider { height: 1px; background: var(--border); margin: 12px 0; }
-  .sidebar-footer {
-    margin-top: auto;
-    padding-top: 12px;
-    border-top: 1px solid var(--border);
-    font-size: 11px;
-    color: var(--text-dim);
-    text-align: center;
-  }
-
-  /* ===== Main ===== */
-  .main {
-    margin-left: var(--sidebar-w);
-    flex: 1;
-    padding: 32px 40px;
-    position: relative;
-    z-index: 1;
-    min-height: 100vh;
-  }
-  .page-header { margin-bottom: 32px; }
-  .page-header h2 {
-    font-family: var(--font-heading);
-    font-size: 28px;
-    font-weight: 700;
-    margin-bottom: 4px;
-  }
-  .page-header p { color: var(--text-muted); font-size: 14px; }
-
-  /* ===== Cards ===== */
-  .card {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 24px;
-    margin-bottom: 20px;
-    transition: border-color 0.2s;
-  }
-  .card:hover { border-color: var(--border-light); }
-  .card-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 20px;
-  }
-  .card-header h3 {
-    font-family: var(--font-heading);
-    font-size: 16px;
-    font-weight: 600;
-  }
-  .card-header .badge {
-    font-size: 11px;
-    padding: 3px 10px;
-    border-radius: 20px;
-    background: var(--primary-glow);
-    color: var(--primary);
-    font-weight: 500;
-  }
-  .card-header .badge.success { background: rgba(16, 185, 129, 0.12); color: var(--success); }
-  .card-header .badge.error { background: rgba(239, 68, 68, 0.12); color: var(--error); }
-
-  /* ===== Form ===== */
-  .form-group { margin-bottom: 16px; }
-  .form-group label {
-    display: block;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin-bottom: 6px;
-  }
-  .form-group label .required { color: var(--error); margin-left: 2px; }
-  .form-row {
-    display: flex;
-    gap: 12px;
-    align-items: center;
-  }
-  .form-row .form-group { flex: 1; margin-bottom: 0; }
-  input, select {
-    width: 100%;
-    padding: 10px 14px;
-    background: #0a0a12;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    color: var(--text);
-    font-size: 14px;
-    font-family: var(--font-body);
-    transition: border-color 0.2s;
-  }
-  input:focus, select:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 0 3px var(--primary-glow); }
-  input::placeholder { color: var(--text-dim); }
-  .hint { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
-  .hint.success { color: var(--success); }
-  .hint.error { color: var(--error); }
-
-  /* ===== Toggle ===== */
-  .toggle-wrap {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 16px;
-  }
-  .toggle {
-    width: 44px; height: 24px;
-    background: #2a2a3a;
-    border-radius: 12px;
-    cursor: pointer;
-    position: relative;
-    transition: background 0.2s;
-    border: none;
-    flex-shrink: 0;
-  }
-  .toggle.active { background: var(--primary); }
-  .toggle::after {
-    content: '';
-    position: absolute;
-    width: 18px; height: 18px;
-    background: #fff;
-    border-radius: 50%;
-    top: 3px; left: 3px;
-    transition: transform 0.2s;
-  }
-  .toggle.active::after { transform: translateX(20px); }
-  .toggle-label { font-size: 14px; color: var(--text); }
-
-  /* ===== Button ===== */
-  .btn {
-    padding: 10px 20px;
-    border: none;
-    border-radius: var(--radius-sm);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .btn-primary { background: var(--primary); color: #fff; }
-  .btn-primary:hover { background: var(--primary-hover); transform: translateY(-1px); box-shadow: 0 4px 15px var(--primary-glow); }
-  .btn-secondary { background: var(--bg-card-hover); color: var(--text); border: 1px solid var(--border); }
-  .btn-secondary:hover { border-color: var(--border-light); }
-  .btn-success { background: var(--success); color: #fff; }
-  .btn-success:hover { opacity: 0.9; transform: translateY(-1px); }
-  .btn-danger { background: var(--error); color: #fff; }
-  .btn-sm { padding: 6px 12px; font-size: 12px; }
-  button:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important; }
-
-  /* ===== Result URL ===== */
-  .result-box {
-    background: linear-gradient(135deg, rgba(16, 185, 129, 0.05), rgba(124, 58, 237, 0.05));
-    border: 1px solid rgba(16, 185, 129, 0.2);
-    border-radius: var(--radius);
-    padding: 24px;
-    margin-top: 20px;
-  }
-  .result-box h4 { color: var(--success); font-size: 15px; margin-bottom: 8px; }
-  .result-box p { color: var(--text-muted); font-size: 13px; margin-bottom: 12px; }
-  .result-url {
-    background: #0a0a12;
-    border: 1px solid var(--border-light);
-    border-radius: var(--radius-sm);
-    padding: 12px 16px;
-    font-size: 12px;
-    color: var(--primary);
-    word-break: break-all;
-    user-select: all;
-    margin-bottom: 12px;
-  }
-  .result-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-  .status-dot {
-    display: inline-block;
-    width: 8px; height: 8px;
-    border-radius: 50%;
-    margin-right: 6px;
-  }
-  .status-dot.green { background: var(--success); }
-  .status-dot.red { background: var(--error); }
-  .status-dot.gray { background: var(--text-dim); }
-
-  /* ===== Provider Cards inside Indexers ===== */
-  .provider-card {
-    background: #0a0a12;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    padding: 16px;
-    margin-bottom: 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-  .provider-card .provider-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-  .provider-card .provider-name {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-weight: 600;
-    font-size: 14px;
-  }
-  .provider-card .provider-name .icon { font-size: 20px; }
-
-  /* ===== Test result ===== */
-  .test-result {
-    font-size: 13px;
-    padding: 8px 12px;
-    border-radius: var(--radius-sm);
-    margin-top: 8px;
-    display: none;
-  }
-  .test-result.show { display: block; }
-  .test-result.success { background: rgba(16, 185, 129, 0.08); color: var(--success); border: 1px solid rgba(16, 185, 129, 0.15); }
-  .test-result.error { background: rgba(239, 68, 68, 0.08); color: var(--error); border: 1px solid rgba(239, 68, 68, 0.15); }
-
-  /* ===== Tab content ===== */
-  .tab-content { display: none; }
-  .tab-content.active { display: block; }
-
-  /* ===== Responsive ===== */
-  @media (max-width: 768px) {
-    .sidebar { transform: translateX(-100%); }
-    .sidebar.open { transform: translateX(0); }
-    .main { margin-left: 0; padding: 20px; }
-    .form-row { flex-direction: column; }
-    .form-row .form-group { margin-bottom: 12px; }
-    .mobile-menu-btn {
-      display: flex !important;
-      position: fixed;
-      top: 16px; left: 16px;
-      z-index: 200;
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      padding: 8px;
-      cursor: pointer;
-      color: var(--text);
-    }
-  }
-  .mobile-menu-btn { display: none; }
-
-  .toast {
-    position: fixed;
-    bottom: 24px; right: 24px;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    padding: 12px 20px;
-    font-size: 14px;
-    z-index: 99999;
-    opacity: 0;
-    transform: translateY(10px);
-    transition: all 0.3s;
-    pointer-events: none;
-  }
-  .toast.show { opacity: 1; transform: translateY(0); }
-  .toast.success { border-color: rgba(16, 185, 129, 0.3); }
-  .toast.error { border-color: rgba(239, 68, 68, 0.3); }
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0a0a0f;--bg-card:#14141e;--border:#1e1e30;--text:#e0e0e8;--text-dim:#8888a0;--primary:#7c3aed;--primary-hover:#8b5cf6;--accent:#f59e0b;--success:#10b981;--error:#ef4444;--radius:10px}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column}
+.header{padding:16px 20px;text-align:center;border-bottom:1px solid var(--border)}
+.header h1{font-size:20px;font-weight:700}
+.header p{font-size:13px;color:var(--text-dim);margin-top:2px}
+.tab-content{flex:1;overflow-y:auto;padding:12px}
+.tab-content .tab-pane{display:none}
+.tab-content .tab-pane.active{display:block}
+.tab-bar{display:flex;border-top:1px solid var(--border);background:var(--bg-card);position:sticky;bottom:0}
+.tab-btn{flex:1;padding:12px;text-align:center;font-size:13px;font-weight:600;cursor:pointer;color:var(--text-dim);border:none;background:none;transition:all .15s}
+.tab-btn.active{color:var(--accent);background:rgba(245,158,11,.08)}
+.tab-btn:hover{color:var(--text)}
+.card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:10px;overflow:hidden}
+.card-header{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--border);font-size:14px;font-weight:600}
+.badge{font-size:11px;padding:2px 8px;border-radius:4px;background:var(--border);color:var(--text-dim)}
+.badge.success{background:rgba(16,185,129,.15);color:var(--success)}
+.badge.error{background:rgba(239,68,68,.15);color:var(--error)}
+.provider-card{padding:10px 14px}
+.provider-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.provider-name{font-size:13px;font-weight:600}
+.toggle{width:40px;height:22px;border-radius:11px;background:var(--border);cursor:pointer;position:relative;transition:background .2s;flex-shrink:0}
+.toggle.active{background:var(--primary)}
+.toggle::after{content:'';position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;transition:transform .2s}
+.toggle.active::after{transform:translateX(18px)}
+.form-group{margin-bottom:8px}
+.form-group label{display:block;font-size:12px;font-weight:600;margin-bottom:3px;color:var(--text-dim)}
+.form-group input,.form-group select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px;outline:none;transition:border-color .15s}
+.form-group input:focus,.form-group select:focus{border-color:var(--primary)}
+.form-group .hint{font-size:11px;color:var(--text-dim);margin-top:3px;word-break:break-all}
+.form-group .hint code{background:var(--bg-card);padding:1px 4px;border-radius:3px;font-size:10px}
+.btn{display:inline-flex;align-items:center;gap:4px;padding:7px 14px;border-radius:6px;border:none;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s}
+.btn-primary{background:var(--primary);color:#fff}
+.btn-primary:hover{background:var(--primary-hover)}
+.btn-success{background:var(--success);color:#fff}
+.btn-secondary{background:var(--border);color:var(--text)}
+.btn-secondary:hover{background:#2a2a40}
+.btn-sm{padding:5px 10px;font-size:11px}
+.test-result{display:none;margin-top:6px;padding:6px 10px;border-radius:6px;font-size:12px}
+.test-result.show{display:block}
+.test-result.success{background:rgba(16,185,129,.1);color:var(--success)}
+.test-result.error{background:rgba(239,68,68,.1);color:var(--error)}
+.result-box{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-top:12px;word-break:break-all}
+.result-url{font-size:12px;color:var(--text-dim);margin-bottom:10px;word-break:break-all}
+.result-actions{display:flex;gap:8px;flex-wrap:wrap}
+.toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#1a1a28;color:var(--text);padding:10px 20px;border-radius:8px;font-size:13px;border:1px solid var(--border);opacity:0;transition:opacity .3s;pointer-events:none;z-index:100}
+.toast.show{opacity:1}
 </style>
 </head>
 <body>
+<div class="header">
+  <h1>UniTorrent</h1>
+  <p>Jackett + Prowlarr + Torrentio + Comet + Jacred + MediaFusion → TorrServer</p>
+</div>
 
-<div class="orb orb-1"></div>
-<div class="orb orb-2"></div>
-
-<button class="mobile-menu-btn" id="mobileMenuBtn">☰</button>
-
-<!-- Sidebar -->
-<nav class="sidebar" id="sidebar">
-  <div class="sidebar-brand">
-    <div class="logo">U</div>
-    <div>
-      <h1>UniTorrent</h1>
-      <small>Multi-Provider Addon</small>
-    </div>
-  </div>
-  <button class="nav-item active" data-tab="indexers"><span class="icon">🔍</span> Indexers</button>
-  <button class="nav-item" data-tab="preferences"><span class="icon">⚙️</span> Preferences</button>
-  <div class="nav-divider"></div>
-  <button class="nav-item" data-tab="install"><span class="icon">📦</span> Install</button>
-  <div class="sidebar-footer">UniTorrent v2.0.0</div>
-</nav>
-
-<!-- Main -->
-<div class="main">
-  <!-- Tab: Indexers -->
-  <div class="tab-content active" id="tab-indexers">
-    <div class="page-header">
-      <h2>🔍 Indexers</h2>
-      <p>Configure torrent sources — enable at least 1 provider</p>
-    </div>
-
+<div class="tab-content">
+  <div class="tab-pane active" id="tab-providers">
     <!-- Jackett -->
     <div class="card">
       <div class="card-header">
-        <h3>🃏 Jackett</h3>
-        <span class="badge" id="jackettBadge">Not configured</span>
+        Jackett <span class="badge" id="jackettBadge">Off</span>
       </div>
       <div class="provider-card">
         <div class="provider-header">
-          <span class="provider-name"><span class="icon">🃏</span> Jackett Server</span>
-          <label class="toggle" id="jackettToggle">
-            <input type="checkbox" hidden id="jackettEnabled">
-          </label>
+          <span class="provider-name">Jackett</span>
+          <label class="toggle" id="jackettToggle"></label>
         </div>
         <div class="form-group">
-          <label>Server URL <span class="required">*</span></label>
+          <label>Jackett URL</label>
           <input type="url" id="jackettUrl" placeholder="http://192.168.1.100:9117">
         </div>
         <div class="form-group">
-          <label>API Key <span class="required">*</span></label>
-          <input type="text" id="jackettApiKey" placeholder="API key from Jackett Dashboard">
+          <label>API Key</label>
+          <input type="text" id="jackettApiKey" placeholder="API Key from Jackett">
         </div>
-        <div style="display:flex;gap:8px">
-          <button class="btn btn-secondary btn-sm" onclick="testJackett()">🔄 Test</button>
-        </div>
+        <button class="btn btn-secondary btn-sm" onclick="testJackett()">Test</button>
         <div class="test-result" id="jackettTestResult"></div>
       </div>
     </div>
-
     <!-- Prowlarr -->
     <div class="card">
       <div class="card-header">
-        <h3>🐟 Prowlarr</h3>
-        <span class="badge" id="prowlarrBadge">Not configured</span>
+        Prowlarr <span class="badge" id="prowlarrBadge">Off</span>
       </div>
       <div class="provider-card">
         <div class="provider-header">
-          <span class="provider-name"><span class="icon">🐟</span> Prowlarr Server</span>
-          <label class="toggle" id="prowlarrToggle">
-            <input type="checkbox" hidden id="prowlarrEnabled">
-          </label>
+          <span class="provider-name">Prowlarr</span>
+          <label class="toggle" id="prowlarrToggle"></label>
         </div>
         <div class="form-group">
-          <label>Server URL <span class="required">*</span></label>
+          <label>Prowlarr URL</label>
           <input type="url" id="prowlarrUrl" placeholder="http://192.168.1.100:9696">
         </div>
         <div class="form-group">
-          <label>API Key <span class="required">*</span></label>
-          <input type="text" id="prowlarrApiKey" placeholder="Settings → General → API Key">
+          <label>API Key</label>
+          <input type="text" id="prowlarrApiKey" placeholder="API Key from Prowlarr">
         </div>
-        <div style="display:flex;gap:8px">
-          <button class="btn btn-secondary btn-sm" onclick="testProwlarr()">🔄 Test</button>
-        </div>
+        <button class="btn btn-secondary btn-sm" onclick="testProwlarr()">Test</button>
         <div class="test-result" id="prowlarrTestResult"></div>
       </div>
     </div>
-
     <!-- Torrentio -->
     <div class="card">
       <div class="card-header">
-        <h3>⚡ Torrentio</h3>
-        <span class="badge" id="torrentioBadge">Off</span>
+        Torrentio <span class="badge" id="torrentioBadge">Off</span>
       </div>
       <div class="provider-card">
         <div class="provider-header">
-          <span class="provider-name"><span class="icon">⚡</span> Torrentio (Proxy)</span>
-          <label class="toggle" id="torrentioToggle">
-            <input type="checkbox" hidden id="torrentioEnabled">
-          </label>
+          <span class="provider-name">Torrentio</span>
+          <label class="toggle" id="torrentioToggle"></label>
         </div>
         <div class="form-group">
-          <label>Torrentio Manifest URL <span class="required">*</span></label>
-          <input type="url" id="torrentioUrl" value="https://torrentio.strem.fun/manifest.json">
-          <div class="hint">Paste full manifest URL. Clean: <code>https://torrentio.strem.fun/manifest.json</code>. With config: <code>https://torrentio.strem.fun/&lt;config&gt;/manifest.json</code></div>
+          <label>Torrentio Manifest URL</label>
+          <input type="url" id="torrentioUrl" placeholder="https://torrentio.strem.fun/manifest.json">
+          <div class="hint">Or with config: <code>https://torrentio.strem.fun/&lt;config&gt;/manifest.json</code></div>
         </div>
       </div>
-      </div>
     </div>
-
     <!-- Comet -->
     <div class="card">
       <div class="card-header">
-        <h3>☄️ Comet</h3>
-        <span class="badge" id="cometBadge">Not configured</span>
+        Comet <span class="badge" id="cometBadge">Off</span>
       </div>
       <div class="provider-card">
         <div class="provider-header">
-          <span class="provider-name"><span class="icon">☄️</span> Comet Instance</span>
-          <label class="toggle" id="cometToggle">
-            <input type="checkbox" hidden id="cometEnabled">
-          </label>
+          <span class="provider-name">Comet</span>
+          <label class="toggle" id="cometToggle"></label>
         </div>
         <div class="form-group">
-          <label>Comet Manifest URL <span class="required">*</span></label>
+          <label>Comet Manifest URL</label>
           <input type="url" id="cometUrl" placeholder="https://comet.feels.legal/manifest.json">
-          <div class="hint">Paste full manifest URL. Clean: <code>https://comet.feels.legal/manifest.json</code></div>
         </div>
-        <div style="display:flex;gap:8px">
-          <button class="btn btn-secondary btn-sm" onclick="testComet()">🔄 Test</button>
-        </div>
+        <button class="btn btn-secondary btn-sm" onclick="testComet()">Test</button>
         <div class="test-result" id="cometTestResult"></div>
       </div>
     </div>
-
     <!-- Jacred -->
     <div class="card">
       <div class="card-header">
-        <h3>💎 Jacred</h3>
-        <span class="badge" id="jacredBadge">Not configured</span>
+        Jacred <span class="badge" id="jacredBadge">Off</span>
       </div>
       <div class="provider-card">
         <div class="provider-header">
-          <span class="provider-name"><span class="icon">💎</span> Jacred (Jackett-compatible)</span>
-          <label class="toggle" id="jacredToggle">
-            <input type="checkbox" hidden id="jacredEnabled">
-          </label>
+          <span class="provider-name">Jacred</span>
+          <label class="toggle" id="jacredToggle"></label>
         </div>
         <div class="form-group">
-          <label>Server URL <span class="required">*</span></label>
+          <label>Jacred URL</label>
           <input type="url" id="jacredUrl" placeholder="http://192.168.1.100:9120">
         </div>
         <div class="form-group">
-          <label>API Key <span class="required">*</span></label>
+          <label>API Key</label>
           <input type="text" id="jacredApiKey" placeholder="API Key from config">
         </div>
-        <div style="display:flex;gap:8px">
-          <button class="btn btn-secondary btn-sm" onclick="testJacred()">🔄 Test</button>
-        </div>
+        <button class="btn btn-secondary btn-sm" onclick="testJacred()">Test</button>
         <div class="test-result" id="jacredTestResult"></div>
       </div>
     </div>
-
     <!-- MediaFusion -->
     <div class="card">
       <div class="card-header">
-        <h3>🎬 MediaFusion</h3>
-        <span class="badge" id="mediafusionBadge">Off</span>
+        MediaFusion <span class="badge" id="mediafusionBadge">Off</span>
       </div>
       <div class="provider-card">
         <div class="provider-header">
-          <span class="provider-name"><span class="icon">🎬</span> MediaFusion Instance</span>
-          <label class="toggle" id="mediafusionToggle">
-            <input type="checkbox" hidden id="mediafusionEnabled">
-          </label>
+          <span class="provider-name">MediaFusion</span>
+          <label class="toggle" id="mediafusionToggle"></label>
         </div>
         <div class="form-group">
-          <label>MediaFusion Manifest URL <span class="required">*</span></label>
-          <input type="url" id="mediafusionUrl" value="https://mediafusion.elfhosted.com">
-          <div class="hint">Paste full manifest URL. Clean: <code>https://mediafusion.elfhosted.com/manifest.json</code></div>
+          <label>MediaFusion Manifest URL</label>
+          <input type="url" id="mediafusionUrl" placeholder="https://mediafusion.elfhosted.com/manifest.json">
         </div>
-        <div style="display:flex;gap:8px">
-          <button class="btn btn-secondary btn-sm" onclick="testMediaFusion()">🔄 Test</button>
-        </div>
+        <button class="btn btn-secondary btn-sm" onclick="testMediafusion()">Test</button>
         <div class="test-result" id="mediafusionTestResult"></div>
       </div>
     </div>
   </div>
 
-  <!-- Tab: Preferences -->
-  <div class="tab-content" id="tab-preferences">
-    <div class="page-header">
-      <h2>⚙️ Preferences</h2>
-      <p>Customize search results</p>
-    </div>
+  <div class="tab-pane" id="tab-server">
     <div class="card">
-      <div class="card-header"><h3>🎯 Search</h3></div>
-      <div class="form-row">
+      <div class="card-header">TorrServer</div>
+      <div class="provider-card">
         <div class="form-group">
-          <label>Max Results</label>
-          <input type="number" id="maxResults" value="5" min="1" max="20">
+          <label>TorrServer URL</label>
+          <input type="url" id="torrServerUrl" placeholder="http://192.168.1.100:8090">
+        </div>
+        <div class="form-group">
+          <label>Username (optional)</label>
+          <input type="text" id="torrServerUser" placeholder="HTTP Basic Auth user">
+        </div>
+        <div class="form-group">
+          <label>Password (optional)</label>
+          <input type="password" id="torrServerPassword" placeholder="HTTP Basic Auth password">
+        </div>
+        <div class="form-group">
+          <label>Type</label>
+          <select id="torrServerType">
+            <option value="official">Official</option>
+            <option value="fork">Fork</option>
+          </select>
         </div>
       </div>
-      <div class="form-group" style="margin-top:16px">
-        <label>TorrServer URL (optional)</label>
-        <input type="url" id="torrServerUrl" placeholder="http://192.168.1.100:8090">
-        <div class="hint">Your TorrServer address. Select version below (Official vs Fork 9000000)</div>
-      </div>
-      <div class="form-group" style="margin-top:16px">
-        <label>TorrServer Version</label>
-        <select id="torrServerType">
-          <option value="official">Official — /stream?link=...</option>
-          <option value="fork">9000000 Fork — /stream?link=... (series handling differs)</option>
-        </select>
-        <div class="hint">Fork 9000000 processes TV series differently from official. Choose <strong>Fork</strong> if you run <code>github.com/9000000/TorrServer</code></div>
-      </div>
-      <div class="form-group" style="margin-top:16px">
-        <label>TorrServer Username (if auth enabled)</label>
-        <input type="text" id="torrServerUser" placeholder="admin">
-      </div>
-      <div class="form-group" style="margin-top:16px">
-        <label>TorrServer Password (if auth enabled)</label>
-        <input type="password" id="torrServerPassword" placeholder="Enter password">
-        <div class="hint">HTTP Basic Auth. Enable on TorrServer with <code>--httpauth</code> flag. <br>Credentials stored in <code>accs.db</code>: <code>{"user":"pass"}</code></div>
+    </div>
+    <div class="card">
+      <div class="card-header">Settings</div>
+      <div class="provider-card">
+        <div class="form-group">
+          <label>Max Results</label>
+          <input type="number" id="maxResults" min="1" max="50" value="5">
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- Tab: Install -->
-  <div class="tab-content" id="tab-install">
-    <div class="page-header">
-      <h2>📦 Install</h2>
-      <p>Generate your personal URL and add it to Stremio</p>
-    </div>
-    <div class="card">
-      <div class="card-header"><h3>🔗 Generate Install URL</h3></div>
-      <p style="color:var(--text-muted);font-size:14px;margin-bottom:16px">
-        Click the button below to create a URL containing your full configuration.
-      </p>
-      <button class="btn btn-primary" onclick="generateUrl()">🔗 Generate Personal URL</button>
-      <div id="resultContainer"></div>
+  <div class="tab-pane" id="tab-url">
+    <button class="btn btn-primary" onclick="generateUrl()" style="width:100%;justify-content:center;padding:12px;font-size:14px">Generate Personal URL</button>
+    <div class="result-box" id="resultBox" style="display:none">
+      <div class="result-url" id="resultUrl"></div>
+      <div class="result-actions">
+        <button class="btn btn-success btn-sm" onclick="copyUrl()">Copy URL</button>
+        <a class="btn btn-primary btn-sm" id="stremioLink" target="_blank">Open in Stremio</a>
+      </div>
     </div>
   </div>
 </div>
 
-<!-- Toast -->
+<div class="tab-bar">
+  <button class="tab-btn active" data-tab="providers">Providers</button>
+  <button class="tab-btn" data-tab="server">Server</button>
+  <button class="tab-btn" data-tab="url">URL</button>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
-// === Sidebar Navigation ===
-document.querySelectorAll('.nav-item[data-tab]').forEach(btn => {
+document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
     btn.classList.add('active');
     document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
-    document.getElementById('sidebar').classList.remove('open');
   });
 });
-document.getElementById('mobileMenuBtn').addEventListener('click', () => {
-  document.getElementById('sidebar').classList.toggle('open');
-});
-
-// === Toggle switches ===
+function showToast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show';
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
 function setupToggle(id) {
   const el = document.getElementById(id);
-  el.addEventListener('click', (e) => {
-    e.preventDefault();
-    el.classList.toggle('active');
-  });
+  el.addEventListener('click', (e) => { e.preventDefault(); el.classList.toggle('active'); });
 }
 setupToggle('jackettToggle');
 setupToggle('prowlarrToggle');
 setupToggle('torrentioToggle');
 setupToggle('cometToggle');
-  setupToggle('jacredToggle');
+setupToggle('jacredToggle');
 setupToggle('mediafusionToggle');
-
-// === Toast ===
-function showToast(msg, type = 'success') {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.className = 'toast ' + type + ' show';
-  setTimeout(() => t.classList.remove('show'), 3000);
-}
-
-// === Copy helper ===
-function copyText(text) {
-  if (navigator.clipboard) {
-    navigator.clipboard.writeText(text).then(() => showToast('✅ URL copied!'));
-  } else {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    document.body.removeChild(ta);
-    showToast('✅ URL copied!');
-  }
-}
-
-// === Collect form data ===
 function collectConfig() {
   return {
     jackettUrl: document.getElementById('jackettUrl').value,
@@ -1103,11 +674,9 @@ function collectConfig() {
     torrServerUser: document.getElementById('torrServerUser').value,
     torrServerPassword: document.getElementById('torrServerPassword').value,
     torrServerType: document.getElementById('torrServerType').value,
-    maxResults: document.getElementById('maxResults').value,
+    maxResults: document.getElementById('maxResults').value || 5,
   };
 }
-
-// === Generate URL ===
 async function generateUrl() {
   const cfg = collectConfig();
   const hasJackett = cfg.jackettEnabled && cfg.jackettUrl && cfg.jackettApiKey;
@@ -1117,130 +686,107 @@ async function generateUrl() {
   const hasJacred = cfg.jacredEnabled && cfg.jacredUrl && cfg.jacredApiKey;
   const hasMediaFusion = cfg.mediafusionEnabled && cfg.mediafusionUrl;
   if (!hasJackett && !hasProwlarr && !hasTorrentio && !hasComet && !hasJacred && !hasMediaFusion) {
-    showToast('⚠️ Enable at least 1 provider (Jackett/Prowlarr/Torrentio/Comet/Jacred/MediaFusion)', 'error');
+    showToast('Enable at least 1 provider');
     return;
   }
-
   try {
     const resp = await fetch('/api/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(cfg),
     });
+    if (!resp.ok) { showToast('Server error'); return; }
     const data = await resp.json();
-    const container = document.getElementById('resultContainer');
-    container.innerHTML = \`
-      <div class="result-box">
-        <h4>✅ URL is Ready!</h4>
-        <p>Copy this URL into Stremio → Addons → Install from URL</p>
-        <div class="result-url">\${data.manifestUrl}</div>
-        <div class="result-actions">
-          <button class="btn btn-success btn-sm" onclick="copyText('\${data.manifestUrl}')">📋 Copy URL</button>
-          <a class="btn btn-primary btn-sm" href="\${data.stremioLink}" target="_blank">🚀 Open in Stremio</a>
-          <button class="btn btn-secondary btn-sm" onclick="window.location.href='/configure'">🔄 Regenerate</button>
-        </div>
-      </div>
-    \`;
-    container.scrollIntoView({ behavior: 'smooth' });
-    showToast('✅ URL generated!');
-  } catch (e) {
-    showToast('⚠️ Error: ' + e.message, 'error');
+    document.getElementById('resultUrl').textContent = data.manifestUrl;
+    document.getElementById('stremioLink').href = data.stremioLink;
+    document.getElementById('resultBox').style.display = 'block';
+    document.querySelector('[data-tab="url"]').click();
+  } catch (e) { showToast('Error: ' + e.message); }
+}
+function copyUrl() {
+  const text = document.getElementById('resultUrl').textContent;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(() => showToast('URL copied!'));
+  } else {
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta);
+    ta.select(); document.execCommand('copy');
+    document.body.removeChild(ta); showToast('URL copied!');
   }
 }
-
-// === Test Jackett ===
 async function testJackett() {
   const url = document.getElementById('jackettUrl').value;
   const key = document.getElementById('jackettApiKey').value;
   const el = document.getElementById('jackettTestResult');
-  if (!url || !key) { el.className = 'test-result show error'; el.textContent = '⚠️ Enter URL and API Key first'; return; }
+  if (!url || !key) { el.className = 'test-result show error'; el.textContent = 'Enter URL and API Key'; return; }
   try {
-    el.className = 'test-result show'; el.textContent = '🔄 Testing...';
+    el.className = 'test-result'; el.textContent = 'Testing...';
     const r = await fetch('/api/test/jackett?url=' + encodeURIComponent(url) + '&key=' + encodeURIComponent(key));
     const d = await r.json();
     el.className = 'test-result show ' + (d.ok ? 'success' : 'error');
-    el.textContent = d.ok ? '✅ ' + d.message : '❌ ' + d.message;
-    document.getElementById('jackettBadge').textContent = d.ok ? '✅ OK' : '❌ Error';
+    el.textContent = d.ok ? d.message : d.message;
+    document.getElementById('jackettBadge').textContent = d.ok ? 'OK' : 'Error';
     document.getElementById('jackettBadge').className = 'badge ' + (d.ok ? 'success' : 'error');
-  } catch (e) {
-    el.className = 'test-result show error'; el.textContent = '❌ ' + e.message;
-  }
+  } catch (e) { el.className = 'test-result show error'; el.textContent = e.message; }
 }
-
-// === Test Comet ===
-async function testComet() {
-  const url = document.getElementById('cometUrl').value;
-  const el = document.getElementById('cometTestResult');
-  if (!url) { el.className = 'test-result show error'; el.textContent = '⚠️ Enter Comet URL first'; return; }
-  try {
-    el.className = 'test-result show'; el.textContent = '🔄 Testing...';
-    const r = await fetch('/api/test/comet?url=' + encodeURIComponent(url));
-    const d = await r.json();
-    el.className = 'test-result show ' + (d.ok ? 'success' : 'error');
-    el.textContent = d.ok ? '✅ ' + d.message : '❌ ' + d.message;
-    document.getElementById('cometBadge').textContent = d.ok ? '✅ OK' : '❌ Error';
-    document.getElementById('cometBadge').className = 'badge ' + (d.ok ? 'success' : 'error');
-  } catch (e) {
-    el.className = 'test-result show error'; el.textContent = '❌ ' + e.message;
-  }
-}
-
-// === Test Jacred ===
-async function testJacred() {
-  const url = document.getElementById('jacredUrl').value;
-  const key = document.getElementById('jacredApiKey').value;
-  const el = document.getElementById('jacredTestResult');
-  if (!url || !key) { el.className = 'test-result show error'; el.textContent = '⚠️ Enter URL and API Key first'; return; }
-  try {
-    el.className = 'test-result show'; el.textContent = '🔄 Testing...';
-    const r = await fetch('/api/test/jacred?url=' + encodeURIComponent(url) + '&key=' + encodeURIComponent(key));
-    const d = await r.json();
-    el.className = 'test-result show ' + (d.ok ? 'success' : 'error');
-    el.textContent = d.ok ? '✅ ' + d.message : '❌ ' + d.message;
-    document.getElementById('jacredBadge').textContent = d.ok ? '✅ OK' : '❌ Error';
-    document.getElementById('jacredBadge').className = 'badge ' + (d.ok ? 'success' : 'error');
-  } catch (e) {
-    el.className = 'test-result show error'; el.textContent = '❌ ' + e.message;
-  }
-}
-
-// === Test Prowlarr ===
 async function testProwlarr() {
   const url = document.getElementById('prowlarrUrl').value;
   const key = document.getElementById('prowlarrApiKey').value;
   const el = document.getElementById('prowlarrTestResult');
-  if (!url || !key) { el.className = 'test-result show error'; el.textContent = '⚠️ Enter URL and API Key first'; return; }
+  if (!url || !key) { el.className = 'test-result show error'; el.textContent = 'Enter URL and API Key'; return; }
   try {
-    el.className = 'test-result show'; el.textContent = '🔄 Testing...';
+    el.className = 'test-result'; el.textContent = 'Testing...';
     const r = await fetch('/api/test/prowlarr?url=' + encodeURIComponent(url) + '&key=' + encodeURIComponent(key));
     const d = await r.json();
     el.className = 'test-result show ' + (d.ok ? 'success' : 'error');
-    el.textContent = d.ok ? '✅ ' + d.message : '❌ ' + d.message;
-    document.getElementById('prowlarrBadge').textContent = d.ok ? '✅ OK' : '❌ Error';
+    el.textContent = d.ok ? d.message : d.message;
+    document.getElementById('prowlarrBadge').textContent = d.ok ? 'OK' : 'Error';
     document.getElementById('prowlarrBadge').className = 'badge ' + (d.ok ? 'success' : 'error');
-  } catch (e) {
-    el.className = 'test-result show error'; el.textContent = '❌ ' + e.message;
-  }
+  } catch (e) { el.className = 'test-result show error'; el.textContent = e.message; }
 }
-
-// === Test MediaFusion ===
-async function testMediaFusion() {
+async function testComet() {
+  const url = document.getElementById('cometUrl').value;
+  const el = document.getElementById('cometTestResult');
+  if (!url) { el.className = 'test-result show error'; el.textContent = 'Enter URL'; return; }
+  try {
+    el.className = 'test-result'; el.textContent = 'Testing...';
+    const r = await fetch('/api/test/comet?url=' + encodeURIComponent(url));
+    const d = await r.json();
+    el.className = 'test-result show ' + (d.ok ? 'success' : 'error');
+    el.textContent = d.ok ? d.message : d.message;
+    document.getElementById('cometBadge').textContent = d.ok ? 'OK' : 'Error';
+    document.getElementById('cometBadge').className = 'badge ' + (d.ok ? 'success' : 'error');
+  } catch (e) { el.className = 'test-result show error'; el.textContent = e.message; }
+}
+async function testJacred() {
+  const url = document.getElementById('jacredUrl').value;
+  const key = document.getElementById('jacredApiKey').value;
+  const el = document.getElementById('jacredTestResult');
+  if (!url || !key) { el.className = 'test-result show error'; el.textContent = 'Enter URL and API Key'; return; }
+  try {
+    el.className = 'test-result'; el.textContent = 'Testing...';
+    const r = await fetch('/api/test/jacred?url=' + encodeURIComponent(url) + '&key=' + encodeURIComponent(key));
+    const d = await r.json();
+    el.className = 'test-result show ' + (d.ok ? 'success' : 'error');
+    el.textContent = d.ok ? d.message : d.message;
+    document.getElementById('jacredBadge').textContent = d.ok ? 'OK' : 'Error';
+    document.getElementById('jacredBadge').className = 'badge ' + (d.ok ? 'success' : 'error');
+  } catch (e) { el.className = 'test-result show error'; el.textContent = e.message; }
+}
+async function testMediafusion() {
   const url = document.getElementById('mediafusionUrl').value;
   const el = document.getElementById('mediafusionTestResult');
-  if (!url) { el.className = 'test-result show error'; el.textContent = '⚠️ Enter MediaFusion URL first'; return; }
+  if (!url) { el.className = 'test-result show error'; el.textContent = 'Enter URL'; return; }
   try {
-    el.className = 'test-result show'; el.textContent = '🔄 Testing...';
+    el.className = 'test-result'; el.textContent = 'Testing...';
     const r = await fetch('/api/test/mediafusion?url=' + encodeURIComponent(url));
     const d = await r.json();
     el.className = 'test-result show ' + (d.ok ? 'success' : 'error');
-    el.textContent = d.ok ? '✅ ' + d.message : '❌ ' + d.message;
-    document.getElementById('mediafusionBadge').textContent = d.ok ? '✅ OK' : '❌ Error';
+    el.textContent = d.ok ? d.message : d.message;
+    document.getElementById('mediafusionBadge').textContent = d.ok ? 'OK' : 'Error';
     document.getElementById('mediafusionBadge').className = 'badge ' + (d.ok ? 'success' : 'error');
-  } catch (e) {
-    el.className = 'test-result show error'; el.textContent = '❌ ' + e.message;
-  }
+  } catch (e) { el.className = 'test-result show error'; el.textContent = e.message; }
 }
-// === Pre-fill form from URL config (edit existing config) ===
 (function() {
   if (!window.__CONFIG__) return;
   const c = window.__CONFIG__;
@@ -1258,8 +804,7 @@ async function testMediaFusion() {
   const toggleMap = {
     jackettUrl: 'jackettToggle', prowlarrUrl: 'prowlarrToggle',
     torrentioUrl: 'torrentioToggle', cometUrl: 'cometToggle',
-    jacredUrl: 'jacredToggle',
-    mediafusionUrl: 'mediafusionToggle',
+    jacredUrl: 'jacredToggle', mediafusionUrl: 'mediafusionToggle',
   };
   for (const [id, val] of Object.entries(fields)) {
     const el = document.getElementById(id);
@@ -1273,7 +818,6 @@ async function testMediaFusion() {
 </script>
 </body>
 </html>`;
-
 // ============================================================================
 // 6. EXPRESS SERVER
 // ============================================================================
