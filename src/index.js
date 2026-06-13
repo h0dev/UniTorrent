@@ -883,14 +883,10 @@ const WEB_HTML = `<!DOCTYPE html>
         </div>
         <div class="form-group">
           <label>Torrentio Manifest URL <span class="required">*</span></label>
-          <input type="url" id="torrentioUrl" value="https://torrentio.strem.fun">
+          <input type="url" id="torrentioUrl" value="https://torrentio.strem.fun/manifest.json">
           <div class="hint">Paste full manifest URL. Clean: <code>https://torrentio.strem.fun/manifest.json</code>. With config: <code>https://torrentio.strem.fun/&lt;config&gt;/manifest.json</code></div>
         </div>
-        <div class="form-group">
-          <label>Torrentio Config <span class="optional">(if needed)</span></label>
-          <input type="text" id="torrentioConfig" placeholder="Base64 config from URL">
-          <div class="hint">If you pasted the full URL above with config, leave this empty. Otherwise paste config string here.</div>
-        </div>
+      </div>
       </div>
     </div>
 
@@ -1096,7 +1092,6 @@ function collectConfig() {
     prowlarrEnabled: document.getElementById('prowlarrToggle').classList.contains('active'),
     torrentioUrl: document.getElementById('torrentioUrl').value,
     torrentioEnabled: document.getElementById('torrentioToggle').classList.contains('active'),
-    torrentioConfig: document.getElementById('torrentioConfig').value,
     cometUrl: document.getElementById('cometUrl').value,
     cometEnabled: document.getElementById('cometToggle').classList.contains('active'),
     jacredUrl: document.getElementById('jacredUrl').value,
@@ -1252,7 +1247,7 @@ async function testMediaFusion() {
   const fields = {
     jackettUrl: c.jackettUrl, jackettApiKey: c.jackettApiKey,
     prowlarrUrl: c.prowlarrUrl, prowlarrApiKey: c.prowlarrApiKey,
-    torrentioUrl: c.torrentioUrl, torrentioConfig: c.torrentioConfig,
+    torrentioUrl: c.torrentioUrl,
     cometUrl: c.cometUrl,
     jacredUrl: c.jacredUrl, jacredApiKey: c.jacredApiKey,
     mediafusionUrl: c.mediafusionUrl,
@@ -1369,7 +1364,6 @@ app.post('/api/generate', (req, res) => {
     prowlarrUrl: body.prowlarrEnabled ? (body.prowlarrUrl || '') : '',
     prowlarrApiKey: body.prowlarrEnabled ? (body.prowlarrApiKey || '') : '',
     torrentioUrl: body.torrentioEnabled ? (body.torrentioUrl || '') : '',
-    torrentioConfig: body.torrentioConfig || '',
     torrentioEnabled: !!body.torrentioEnabled,
     cometUrl: body.cometEnabled ? (body.cometUrl || '') : '',
     jacredUrl: body.jacredEnabled ? (body.jacredUrl || '') : '',
