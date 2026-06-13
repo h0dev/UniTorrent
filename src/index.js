@@ -204,12 +204,40 @@ function buildStreamEntry(r, cfg) {
   return stream;
 }
 
-// ---- Jackett ----
+// ---- Helper: extract infoHash from .torrent file bytes ----
+function infoHashFromTorrent(buf) {
+  try {
+    const str = buf.toString('binary');
+    const idx = str.indexOf('4:info');
+    if (idx === -1) return null;
+    const start = idx + 6;
+    let depth = 0, i = start - 1;
+    if (str[i] !== 'd') return null;
+    depth = 1; i++;
+    while (depth > 0 && i < str.length) {
+      const ch = str[i];
+      if (ch === 'e') { depth--; i++; continue; }
+      if (ch === 'd' || ch === 'l') { depth++; i++; continue; }
+      if (ch === 'i') { while (i < str.length && str[i] !== 'e') i++; i++; continue; }
+      if (ch >= '0' && ch <= '9') {
+        const colon = str.indexOf(':', i);
+        if (colon === -1) return null;
+        i = colon + 1 + parseInt(str.slice(i, colon), 10);
+        continue;
+      }
+      i++;
+    }
+    return crypto.createHash('sha1').update(buf.slice(start - 1, i)).digest('hex').toLowerCase();
+  } catch { return null; }
+}
+
 function infoHashFromMagnet(link) {
   if (!link) return '';
   const m = link.match(/urn:btih:([a-f0-9]{40})/i);
   return m ? m[1].toLowerCase() : '';
 }
+
+// ---- Jackett ----
 async function searchJackett(cfg, imdbId) {
   if (!cfg.jackettUrl || !cfg.jackettApiKey) return [];
   const params = new URLSearchParams({ apikey: cfg.jackettApiKey, imdbid: imdbId });
@@ -217,7 +245,7 @@ async function searchJackett(cfg, imdbId) {
   const res = await fetch(url, { signal: AbortSignal.timeout(20000), headers: { Accept: 'application/json' } });
   if (!res.ok) throw new Error(`Jackett HTTP ${res.status}`);
   const data = await res.json();
-  return (data.Results || []).map(r => ({
+  const results = (data.Results || []).map(r => ({
     Title: r.Title,
     Seeders: r.Seeders || 0,
     Size: r.Size || 0,
@@ -225,8 +253,24 @@ async function searchJackett(cfg, imdbId) {
     MagnetUri: r.Link || '',
     CategoryDesc: r.CategoryDesc || '',
     _provider: 'Jackett',
-  })).filter(r => r.MagnetUri || r.InfoHash)
-    .sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
+  })).filter(r => r.MagnetUri || r.InfoHash);
+
+  // For HTTP download URLs (not magnet), fetch .torrent → extract infoHash → magnet URI
+  const needFetch = results.filter(r => r.MagnetUri && !r.MagnetUri.startsWith('magnet:') && !r.InfoHash);
+  if (needFetch.length > 0) {
+    await Promise.all(needFetch.slice(0, 5).map(async r => {
+      try {
+        const tf = await fetch(r.MagnetUri, { signal: AbortSignal.timeout(10000) });
+        if (tf.ok) {
+          const buf = Buffer.from(await tf.arrayBuffer());
+          const ih = infoHashFromTorrent(buf);
+          if (ih) { r.InfoHash = ih; r.MagnetUri = `magnet:?xt=urn:btih:${ih}&dn=${encodeURIComponent(r.Title || '')}`; }
+        }
+      } catch {}
+    }));
+  }
+
+  return results.sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
 }
 
 // ---- Prowlarr ----
