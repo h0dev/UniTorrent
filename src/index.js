@@ -906,7 +906,6 @@ async function testMediafusion() {
     const map = { j: 'jackettPriority', p: 'prowlarrPriority', t: 'torrentioPriority', o: 'cometPriority', a: 'jacredPriority', f: 'mediafusionPriority' };
     c.providerOrder.forEach((code, idx) => { if (map[code]) fields[map[code]] = idx + 1; });
   }
-  };
   const toggleMap = {
     jackettUrl: 'jackettToggle', prowlarrUrl: 'prowlarrToggle',
     torrentioUrl: 'torrentioToggle', cometUrl: 'cometToggle',
