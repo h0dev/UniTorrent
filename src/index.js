@@ -208,6 +208,44 @@ function buildStreamEntry(r, cfg) {
 // ---- Jackett (Torznab API) ----
 const torznabParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
 
+function torrentMeta(tfBuf) {
+  try {
+    const s = tfBuf.toString('binary');
+    const infoIdx = s.indexOf('4:info');
+    if (infoIdx === -1) return null;
+    let i = infoIdx + 6;
+    if (s[i] !== 'd') return null;
+    let depth = 1; i++;
+    while (depth > 0 && i < s.length) {
+      const ch = s[i];
+      if (ch === 'e') { depth--; i++; continue; }
+      if (ch === 'd' || ch === 'l') { depth++; i++; continue; }
+      if (ch === 'i') { while (i < s.length && s[i] !== 'e') i++; i++; continue; }
+      if (ch >= '0' && ch <= '9') {
+        const colon = s.indexOf(':', i);
+        if (colon === -1) return null;
+        i = colon + 1 + parseInt(s.slice(i, colon), 10);
+        continue;
+      }
+      i++;
+    }
+    const infoHash = crypto.createHash('sha1').update(tfBuf.slice(infoIdx + 6, i)).digest('hex').toLowerCase();
+    // Extract announce URL
+    const urls = [];
+    const annRe = /8:announce/g;
+    const am = annRe.exec(s);
+    if (am) {
+      const lenStart = am.index + am[0].length;
+      const colon = s.indexOf(':', lenStart);
+      if (colon !== -1) {
+        const len = parseInt(s.slice(lenStart, colon), 10);
+        urls.push(s.slice(colon + 1, colon + 1 + len));
+      }
+    }
+    return { infoHash, announceUrls: urls };
+  } catch { return null; }
+}
+
 async function searchJackett(cfg, type, imdbId) {
   if (!cfg.jackettUrl || !cfg.jackettApiKey) return [];
   const t = type === 'series' ? 'tvsearch' : 'movie';
@@ -221,7 +259,7 @@ async function searchJackett(cfg, type, imdbId) {
   const items = parsed?.rss?.channel?.item;
   if (!items) return [];
   const arr = Array.isArray(items) ? items : [items];
-  return arr.map(item => {
+  const results = arr.map(item => {
     const attrs = {};
     const rawAttr = item['torznab:attr'];
     if (rawAttr) {
@@ -236,8 +274,25 @@ async function searchJackett(cfg, type, imdbId) {
       CategoryDesc: attrs.category || '',
       _provider: 'Jackett',
     };
-  }).filter(r => r.MagnetUri || r.InfoHash)
-    .sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
+  }).filter(r => r.MagnetUri || r.InfoHash);
+
+  // HTTP download → fetch .torrent → magnet URI (preserves passkey)
+  const httpList = results.filter(r => r.MagnetUri && !r.MagnetUri.startsWith('magnet:') && !r.InfoHash);
+  if (httpList.length > 0) {
+    await Promise.all(httpList.slice(0, 5).map(async r => {
+      try {
+        const tf = await fetch(r.MagnetUri, { signal: AbortSignal.timeout(25000) });
+        if (!tf.ok) return;
+        const meta = torrentMeta(Buffer.from(await tf.arrayBuffer()));
+        if (!meta || !meta.infoHash) return;
+        r.InfoHash = meta.infoHash;
+        const tr = meta.announceUrls.filter(Boolean).map(u => `tr=${encodeURIComponent(u)}`).join('&');
+        r.MagnetUri = `magnet:?xt=urn:btih:${meta.infoHash}&dn=${encodeURIComponent(r.Title || '')}${tr ? '&' + tr : ''}`;
+      } catch {}
+    }));
+  }
+
+  return results.sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
 }
 
 // ---- Prowlarr ----
@@ -359,7 +414,7 @@ async function searchJacred(cfg, type, imdbId) {
   const items = parsed?.rss?.channel?.item;
   if (!items) return [];
   const arr = Array.isArray(items) ? items : [items];
-  return arr.map(item => {
+  const results = arr.map(item => {
     const attrs = {};
     const rawAttr = item['torznab:attr'];
     if (rawAttr) {
@@ -374,8 +429,24 @@ async function searchJacred(cfg, type, imdbId) {
       CategoryDesc: attrs.category || '',
       _provider: 'Jacred',
     };
-  }).filter(r => r.MagnetUri || r.InfoHash)
-    .sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
+  }).filter(r => r.MagnetUri || r.InfoHash);
+
+  const httpList = results.filter(r => r.MagnetUri && !r.MagnetUri.startsWith('magnet:') && !r.InfoHash);
+  if (httpList.length > 0) {
+    await Promise.all(httpList.slice(0, 5).map(async r => {
+      try {
+        const tf = await fetch(r.MagnetUri, { signal: AbortSignal.timeout(25000) });
+        if (!tf.ok) return;
+        const meta = torrentMeta(Buffer.from(await tf.arrayBuffer()));
+        if (!meta || !meta.infoHash) return;
+        r.InfoHash = meta.infoHash;
+        const tr = meta.announceUrls.filter(Boolean).map(u => `tr=${encodeURIComponent(u)}`).join('&');
+        r.MagnetUri = `magnet:?xt=urn:btih:${meta.infoHash}&dn=${encodeURIComponent(r.Title || '')}${tr ? '&' + tr : ''}`;
+      } catch {}
+    }));
+  }
+
+  return results.sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
 }
 
 // ============================================================================
