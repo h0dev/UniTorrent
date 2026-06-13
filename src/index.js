@@ -708,22 +708,21 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 </div>
 
 <div class="tab-bar">
-  <button class="tab-btn active" data-tab="providers">Providers</button>
-  <button class="tab-btn" data-tab="server">Server</button>
-  <button class="tab-btn" data-tab="url">URL</button>
+  <button class="tab-btn active" onclick="switchTab('providers')">Providers</button>
+  <button class="tab-btn" onclick="switchTab('server')">Server</button>
+  <button class="tab-btn" onclick="switchTab('url')">URL</button>
 </div>
 
 <div class="toast" id="toast"></div>
 
 <script>
-document.querySelectorAll('.tab-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
-    btn.classList.add('active');
-    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
-  });
-});
+function switchTab(name) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  const idx = {providers:0,server:1,url:2}[name];
+  if (idx != null) document.querySelectorAll('.tab-btn')[idx].classList.add('active');
+  document.getElementById('tab-' + name).classList.add('active');
+}
 function showToast(msg, type) {
   const t = document.getElementById('toast');
   t.textContent = msg;
@@ -798,7 +797,7 @@ async function generateUrl() {
     document.getElementById('resultUrl').textContent = data.manifestUrl;
     document.getElementById('stremioLink').href = data.stremioLink;
     document.getElementById('resultBox').style.display = 'block';
-    document.querySelector('[data-tab="url"]').click();
+    switchTab('url');
   } catch (e) { showToast('Error: ' + e.message); }
 }
 function copyUrl() {
