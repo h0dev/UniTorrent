@@ -65,6 +65,9 @@ function encodeConfig(config) {
     if (config.torrServerType && config.torrServerType !== 'official') {
       c.s.t = config.torrServerType;
     }
+    if (config.saveToDb) {
+      c.s.d = true;
+    }
   }
   c.m = Math.min(Math.max(parseInt(config.maxResults || '5', 10) || 5, 1), 20);
   return Buffer.from(JSON.stringify(c)).toString('base64')
@@ -97,6 +100,7 @@ function decodeConfig(b64) {
           if (sep >= 0) { cfg.torrServerUser = d.s.a.slice(0, sep); cfg.torrServerPassword = d.s.a.slice(sep + 1); }
           else { cfg.torrServerPassword = d.s.a; }
         }
+        cfg.saveToDb = !!d.s.d;
       }
     }
     return cfg;
@@ -115,6 +119,7 @@ function decodeConfig(b64) {
       torrServerUrl: process.env.TORRSERVER_URL || '',
       torrServerUser: process.env.TORRSERVER_USER || '',
       torrServerPassword: process.env.TORRSERVER_PASSWORD || '',
+      saveToDb: false,
       maxResults: 5,
     };
   }
@@ -173,7 +178,7 @@ function buildStreamEntry(r, cfg) {
     }
     // Use MagnetUri if available, otherwise construct from InfoHash
     const torrentLink = r.MagnetUri || (r.InfoHash ? `magnet:?xt=urn:btih:${r.InfoHash}` : '');
-    stream.url = `${baseUrl}/stream?link=${encodeURIComponent(torrentLink)}&index=1&play`;
+    stream.url = `${baseUrl}/stream?link=${encodeURIComponent(torrentLink)}&index=1&play${cfg.saveToDb ? '&save=true' : ''}`;
     stream.title = label;
     stream.behaviorHints.notWebReady = false;
   }
@@ -595,6 +600,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
             <option value="fork">Fork — github.com/9000000/TorrServer</option>
           </select>
           <div class="hint"><a href="https://github.com/YouROK/TorrServer" target="_blank" style="color:var(--accent)">Official</a> · <a href="https://github.com/9000000/TorrServer" target="_blank" style="color:var(--accent)">Fork</a></div>
+          <div class="form-group" style="margin-top:8px">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+              <input type="checkbox" id="saveToDb" style="width:auto">
+              Save movies to TorrServer database
+            </label>
+            <div class="hint">Torrent persists in TorrServer after playback. Default: off.</div>
+          </div>
         </div>
       </div>
     </div>
@@ -675,6 +687,7 @@ function collectConfig() {
     torrServerUser: document.getElementById('torrServerUser').value,
     torrServerPassword: document.getElementById('torrServerPassword').value,
     torrServerType: document.getElementById('torrServerType').value,
+    saveToDb: document.getElementById('saveToDb').checked,
     maxResults: document.getElementById('maxResults').value || 5,
   };
 }
@@ -800,6 +813,7 @@ async function testMediafusion() {
     mediafusionUrl: c.mediafusionUrl,
     torrServerUrl: c.torrServerUrl, torrServerUser: c.torrServerUser,
     torrServerPassword: c.torrServerPassword, torrServerType: c.torrServerType || 'official',
+    saveToDb: c.saveToDb || false,
     maxResults: c.maxResults || 5,
   };
   const toggleMap = {
@@ -809,7 +823,9 @@ async function testMediafusion() {
   };
   for (const [id, val] of Object.entries(fields)) {
     const el = document.getElementById(id);
-    if (el) el.value = val != null ? val : '';
+    if (!el) continue;
+    if (el.type === 'checkbox') { el.checked = !!val; }
+    else { el.value = val != null ? val : ''; }
   }
   for (const [fieldId, toggleId] of Object.entries(toggleMap)) {
     const toggle = document.getElementById(toggleId);
@@ -852,6 +868,7 @@ function configFromQuery(q) {
     torrServerUser: q.torrServerUser || '',
     torrServerPassword: q.torrServerPassword || '',
     torrServerType: q.torrServerType || 'official',
+    saveToDb: q.saveToDb === 'true' || q.saveToDb === '1',
     maxResults: parseInt(q.maxResults || '5', 10) || 5,
   };
 }
@@ -918,6 +935,7 @@ app.post('/api/generate', (req, res) => {
     torrServerUser: body.torrServerUser || '',
     torrServerPassword: body.torrServerPassword || '',
     torrServerType: body.torrServerType || 'official',
+    saveToDb: !!body.saveToDb,
     maxResults: body.maxResults || 5,
   };
   const b64 = encodeConfig(cfg);
