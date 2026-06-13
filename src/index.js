@@ -212,23 +212,13 @@ const torznabParser = new XMLParser({ ignoreAttributes: false, attributeNamePref
 function torrentMeta(tfBuf) {
   try {
     const s = tfBuf.toString('binary');
-    // Find announce URLs (simple scan for http/https/udp strings)
-    const urls = [];
-    const re = /([a-z]+):\/\/[^\s"']+/gi;
-    let m;
-    while ((m = re.exec(s)) !== null) {
-      const u = m[0];
-      if ((u.startsWith('http://') || u.startsWith('https://') || u.startsWith('udp://')) && u.includes('announce')) {
-        if (!urls.includes(u)) urls.push(u);
-      }
-    }
+
     // Extract info dict → SHA1 → infoHash
     const infoIdx = s.indexOf('4:info');
     if (infoIdx === -1) return null;
-    const start = infoIdx + 6;
-    let depth = 0, i = start - 1;
+    let i = infoIdx + 6;
     if (s[i] !== 'd') return null;
-    depth = 1; i++;
+    let depth = 1; i++;
     while (depth > 0 && i < s.length) {
       const ch = s[i];
       if (ch === 'e') { depth--; i++; continue; }
@@ -242,7 +232,43 @@ function torrentMeta(tfBuf) {
       }
       i++;
     }
-    const infoHash = crypto.createHash('sha1').update(tfBuf.slice(start - 1, i)).digest('hex').toLowerCase();
+    const infoHash = crypto.createHash('sha1').update(tfBuf.slice(infoIdx + 6, i)).digest('hex').toLowerCase();
+
+    // Extract announce URL via bencode parsing
+    const urls = [];
+    // Find 8:announce<len>:
+    const annRe = /8:announce/g;
+    const annMatch = annRe.exec(s);
+    if (annMatch) {
+      const start = annMatch.index + annMatch[0].length; // after '8:announce'
+      const lenEnd = s.indexOf(':', start);
+      if (lenEnd !== -1) {
+        const len = parseInt(s.slice(start, lenEnd), 10);
+        urls.push(s.slice(lenEnd + 1, lenEnd + 1 + len));
+      }
+    }
+    // Find announce-list
+    const alIdx = s.indexOf('13:announce-list');
+    if (alIdx !== -1) {
+      // after '13:announce-list' expect 'l' (list), then 'l' (inner list), then strings
+      let pos = alIdx + 16; // after '13:announce-list'
+      if (s[pos] === 'l') {
+        pos++; // start of inner list
+        if (s[pos] === 'l') {
+          pos++; // start of strings in inner list
+          while (pos < s.length && s[pos] !== 'e') {
+            if (s[pos] >= '0' && s[pos] <= '9') {
+              const colon2 = s.indexOf(':', pos);
+              if (colon2 === -1) break;
+              const len2 = parseInt(s.slice(pos, colon2), 10);
+              const url = s.slice(colon2 + 1, colon2 + 1 + len2);
+              if (!urls.includes(url)) urls.push(url);
+              pos = colon2 + 1 + len2;
+            } else break;
+          }
+        }
+      }
+    }
     return { infoHash, announceUrls: urls };
   } catch { return null; }
 }
@@ -282,7 +308,7 @@ async function searchJackett(cfg, type, imdbId) {
   if (httpList.length > 0) {
     await Promise.all(httpList.slice(0, 5).map(async r => {
       try {
-        const tf = await fetch(r.MagnetUri, { signal: AbortSignal.timeout(10000) });
+        const tf = await fetch(r.MagnetUri, { signal: AbortSignal.timeout(25000) });
         if (!tf.ok) return;
         const buf = Buffer.from(await tf.arrayBuffer());
         const meta = torrentMeta(buf);
@@ -437,7 +463,7 @@ async function searchJacred(cfg, type, imdbId) {
   if (httpList.length > 0) {
     await Promise.all(httpList.slice(0, 5).map(async r => {
       try {
-        const tf = await fetch(r.MagnetUri, { signal: AbortSignal.timeout(10000) });
+        const tf = await fetch(r.MagnetUri, { signal: AbortSignal.timeout(25000) });
         if (!tf.ok) return;
         const buf = Buffer.from(await tf.arrayBuffer());
         const meta = torrentMeta(buf);
@@ -1188,7 +1214,7 @@ app.get('/api/test/prowlarr', async (req, res) => {
     const { url, key } = req.query;
     const r = await fetch(`${url.replace(/\/$/, '')}/api/v1/indexer`, {
       headers: { 'X-Api-Key': key, Accept: 'application/json' },
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(25000),
     });
     if (!r.ok) { res.json({ ok: false, message: `HTTP ${r.status}` }); return; }
     const data = await r.json();
