@@ -12,9 +12,25 @@ const express = require('express');
 // ============================================================================
 // 1. DEBUG & CONFIG
 // ============================================================================
-const DEBUG = process.env.DEBUG === 'true' || true;
+const DEBUG = process.env.DEBUG === 'true';
 const log = (...args) => { if (DEBUG) console.log('[UniTorrent]', ...args); };
 const err = (...args) => console.error('[UniTorrent:ERR]', ...args);
+
+// ---- In-memory cache with per-config isolation ----
+const resultCache = new Map();
+const CACHE_TTL = 5 * 60 * 1000; // 5 min
+
+function cacheKey(type, id, cfg) {
+  const sig = [cfg.jackettUrl, cfg.prowlarrUrl, cfg.torrentioUrl, cfg.cometUrl, cfg.jacredUrl, cfg.mediafusionUrl].filter(Boolean).join('|');
+  return `${sig}:${type}:${id}`;
+}
+function cacheGet(key) {
+  const entry = resultCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > CACHE_TTL) { resultCache.delete(key); return null; }
+  return entry.data;
+}
+function cacheSet(key, data) { resultCache.set(key, { ts: Date.now(), data }); }
 
 // ============================================================================
 // 2. MANIFEST
@@ -69,6 +85,9 @@ function encodeConfig(config) {
       c.s.d = true;
     }
   }
+  if (config.providerOrder) {
+    c.r = config.providerOrder;
+  }
   c.m = Math.min(Math.max(parseInt(config.maxResults || '5', 10) || 5, 1), 20);
   return Buffer.from(JSON.stringify(c)).toString('base64')
     .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -79,7 +98,7 @@ function decodeConfig(b64) {
     let s = b64.replace(/-/g, '+').replace(/_/g, '/');
     while (s.length % 4) s += '=';
     const d = JSON.parse(Buffer.from(s, 'base64').toString('utf-8'));
-    const cfg = { maxResults: d.m || 5 };
+    const cfg = { maxResults: d.m || 5, providerOrder: Array.isArray(d.r) ? d.r : undefined };
     if (d.j) { cfg.jackettUrl = d.j.u; cfg.jackettApiKey = d.j.k; }
     if (d.p) { cfg.prowlarrUrl = d.p.u; cfg.prowlarrApiKey = d.p.k; }
     // Torrentio: old format { e, c } or new format { u, c }
@@ -234,6 +253,12 @@ function stripManifestPath(url) {
   return url.replace(/\/manifest\.json$/i, '').replace(/\/+$/, '');
 }
 
+// Provider name → config code for priority ordering
+function codeOf(provider) {
+  const map = { Jackett: 'j', Prowlarr: 'p', Torrentio: 't', Comet: 'o', Jacred: 'a', MediaFusion: 'f' };
+  return map[provider] || '';
+}
+
 // ---- Torrentio (HTTP proxy) ----
 async function searchTorrentio(cfg, type, id) {
   if (!cfg.torrentioUrl) return [];
@@ -312,6 +337,10 @@ async function searchJacred(cfg, imdbId) {
 // 5. STREAM HANDLER (multi-provider)
 // ============================================================================
 async function handleStream(config, type, id) {
+  const ck = cacheKey(type, id, config);
+  const cached = cacheGet(ck);
+  if (cached) { log(`  Cache hit for ${type}:${id}`); return cached; }
+
   try {
     const imdbId = extractIMDbId(id);
     if (!imdbId) {
@@ -359,8 +388,15 @@ async function handleStream(config, type, id) {
       return true;
     });
 
-    // Sort by seeders
-    unique.sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
+    // Sort by provider priority, then seeders
+    const order = config.providerOrder || ['j','p','t','o','a','f'];
+    const orderIdx = { j: 0, p: 1, t: 2, o: 3, a: 4, f: 5 };
+    unique.sort((a, b) => {
+      const pa = order.indexOf(codeOf(a._provider));
+      const pb = order.indexOf(codeOf(b._provider));
+      if (pa !== pb) return (pa === -1 ? 999 : pa) - (pb === -1 ? 999 : pb);
+      return (b.Seeders || 0) - (a.Seeders || 0);
+    });
 
     const maxResults = config.maxResults || 5;
     const streams = unique.slice(0, maxResults).map(r => {
@@ -381,7 +417,9 @@ async function handleStream(config, type, id) {
     });
 
     log(`  → ${streams.length} streams returned (${results.length} raw, ${unique.length} unique)`);
-    return { streams, cacheMaxAge: 600 };
+    const out = { streams, cacheMaxAge: 600 };
+    cacheSet(ck, out);
+    return out;
   } catch (err_) {
     err(`Stream error: ${err_.message}`);
     return { streams: [] };
@@ -474,7 +512,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
           <label>API Key</label>
           <input type="text" id="jackettApiKey" placeholder="API Key from Jackett">
         </div>
-        <button class="btn btn-secondary btn-sm" onclick="testJackett()">Test</button>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn btn-secondary btn-sm" onclick="testJackett()">Test</button>
+          <div style="margin-left:auto;display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-dim)">
+            Priority
+            <input type="number" id="jackettPriority" min="1" max="6" value="3" style="width:40px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:11px;text-align:center">
+          </div>
+        </div>
         <div class="test-result" id="jackettTestResult"></div>
       </div>
     </div>
@@ -496,7 +540,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
           <label>API Key</label>
           <input type="text" id="prowlarrApiKey" placeholder="API Key from Prowlarr">
         </div>
-        <button class="btn btn-secondary btn-sm" onclick="testProwlarr()">Test</button>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn btn-secondary btn-sm" onclick="testProwlarr()">Test</button>
+          <div style="margin-left:auto;display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-dim)">
+            Priority
+            <input type="number" id="prowlarrPriority" min="1" max="6" value="3" style="width:40px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:11px;text-align:center">
+          </div>
+        </div>
         <div class="test-result" id="prowlarrTestResult"></div>
       </div>
     </div>
@@ -515,6 +565,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
           <input type="url" id="torrentioUrl" placeholder="https://torrentio.strem.fun/manifest.json">
           <div class="hint">Or with config: <code>https://torrentio.strem.fun/&lt;config&gt;/manifest.json</code></div>
         </div>
+        <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end">
+          <div style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-dim)">
+            Priority
+            <input type="number" id="torrentioPriority" min="1" max="6" value="3" style="width:40px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:11px;text-align:center">
+          </div>
+        </div>
       </div>
     </div>
     <!-- Comet -->
@@ -531,7 +587,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
           <label>Comet Manifest URL</label>
           <input type="url" id="cometUrl" placeholder="https://comet.feels.legal/manifest.json">
         </div>
-        <button class="btn btn-secondary btn-sm" onclick="testComet()">Test</button>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn btn-secondary btn-sm" onclick="testComet()">Test</button>
+          <div style="margin-left:auto;display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-dim)">
+            Priority
+            <input type="number" id="cometPriority" min="1" max="6" value="3" style="width:40px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:11px;text-align:center">
+          </div>
+        </div>
         <div class="test-result" id="cometTestResult"></div>
       </div>
     </div>
@@ -553,7 +615,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
           <label>API Key</label>
           <input type="text" id="jacredApiKey" placeholder="API Key from config">
         </div>
-        <button class="btn btn-secondary btn-sm" onclick="testJacred()">Test</button>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn btn-secondary btn-sm" onclick="testJacred()">Test</button>
+          <div style="margin-left:auto;display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-dim)">
+            Priority
+            <input type="number" id="jacredPriority" min="1" max="6" value="3" style="width:40px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:11px;text-align:center">
+          </div>
+        </div>
         <div class="test-result" id="jacredTestResult"></div>
       </div>
     </div>
@@ -571,7 +639,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
           <label>MediaFusion Manifest URL</label>
           <input type="url" id="mediafusionUrl" placeholder="https://mediafusion.elfhosted.com/manifest.json">
         </div>
-        <button class="btn btn-secondary btn-sm" onclick="testMediafusion()">Test</button>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn btn-secondary btn-sm" onclick="testMediafusion()">Test</button>
+          <div style="margin-left:auto;display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-dim)">
+            Priority
+            <input type="number" id="mediafusionPriority" min="1" max="6" value="3" style="width:40px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:11px;text-align:center">
+          </div>
+        </div>
         <div class="test-result" id="mediafusionTestResult"></div>
       </div>
     </div>
@@ -667,6 +741,15 @@ setupToggle('cometToggle');
 setupToggle('jacredToggle');
 setupToggle('mediafusionToggle');
 function collectConfig() {
+  const priorities = {
+    j: parseInt(document.getElementById('jackettPriority').value) || 3,
+    p: parseInt(document.getElementById('prowlarrPriority').value) || 3,
+    t: parseInt(document.getElementById('torrentioPriority').value) || 3,
+    o: parseInt(document.getElementById('cometPriority').value) || 3,
+    a: parseInt(document.getElementById('jacredPriority').value) || 3,
+    f: parseInt(document.getElementById('mediafusionPriority').value) || 3,
+  };
+  const providerOrder = Object.entries(priorities).sort((a, b) => a[1] - b[1]).map(e => e[0]);
   return {
     jackettUrl: document.getElementById('jackettUrl').value,
     jackettApiKey: document.getElementById('jackettApiKey').value,
@@ -689,6 +772,7 @@ function collectConfig() {
     torrServerType: document.getElementById('torrServerType').value,
     saveToDb: document.getElementById('saveToDb').checked,
     maxResults: document.getElementById('maxResults').value || 5,
+    providerOrder,
   };
 }
 async function generateUrl() {
@@ -815,6 +899,14 @@ async function testMediafusion() {
     torrServerPassword: c.torrServerPassword, torrServerType: c.torrServerType || 'official',
     saveToDb: c.saveToDb || false,
     maxResults: c.maxResults || 5,
+    jackettPriority: 3, prowlarrPriority: 3, torrentioPriority: 3,
+    cometPriority: 3, jacredPriority: 3, mediafusionPriority: 3,
+  };
+  // Apply providerOrder to priority fields
+  if (Array.isArray(c.providerOrder)) {
+    const map = { j: 'jackettPriority', p: 'prowlarrPriority', t: 'torrentioPriority', o: 'cometPriority', a: 'jacredPriority', f: 'mediafusionPriority' };
+    c.providerOrder.forEach((code, idx) => { if (map[code]) fields[map[code]] = idx + 1; });
+  }
   };
   const toggleMap = {
     jackettUrl: 'jackettToggle', prowlarrUrl: 'prowlarrToggle',
@@ -869,6 +961,7 @@ function configFromQuery(q) {
     torrServerPassword: q.torrServerPassword || '',
     torrServerType: q.torrServerType || 'official',
     saveToDb: q.saveToDb === 'true' || q.saveToDb === '1',
+    providerOrder: q.providerOrder ? q.providerOrder.split(',') : undefined,
     maxResults: parseInt(q.maxResults || '5', 10) || 5,
   };
 }
@@ -936,6 +1029,7 @@ app.post('/api/generate', (req, res) => {
     torrServerPassword: body.torrServerPassword || '',
     torrServerType: body.torrServerType || 'official',
     saveToDb: !!body.saveToDb,
+    providerOrder: Array.isArray(body.providerOrder) ? body.providerOrder : undefined,
     maxResults: body.maxResults || 5,
   };
   const b64 = encodeConfig(cfg);
