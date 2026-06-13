@@ -210,6 +210,62 @@ function infoHashFromMagnet(link) {
   return m ? m[1].toLowerCase() : '';
 }
 
+// Parse .torrent → { infoHash, announceUrls[] }
+function parseTorrentMeta(buf) {
+  try {
+    const s = buf.toString('binary');
+    const infoIdx = s.indexOf('4:info');
+    if (infoIdx === -1) return null;
+    const infoStart = infoIdx + 6; // after '4:info'
+    let depth = 0, i = infoStart - 1;
+    if (s[i] !== 'd') return null;
+    depth = 1; i++;
+    while (depth > 0 && i < s.length) {
+      const ch = s[i];
+      if (ch === 'e') { depth--; i++; continue; }
+      if (ch === 'd' || ch === 'l') { depth++; i++; continue; }
+      if (ch === 'i') { while (i < s.length && s[i] !== 'e') i++; i++; continue; }
+      if (ch >= '0' && ch <= '9') {
+        const colon = s.indexOf(':', i);
+        if (colon === -1) return null;
+        i = colon + 1 + parseInt(s.slice(i, colon), 10);
+        continue;
+      }
+      i++;
+    }
+    const infoHash = crypto.createHash('sha1').update(buf.slice(infoStart - 1, i)).digest('hex').toLowerCase();
+
+    // Extract announce URLs (from announce + announce-list)
+    const urls = [];
+    const annRe = /(\d+):([^e]+?)e/g;
+    let m;
+    while ((m = annRe.exec(s)) !== null) {
+      const keyLen = parseInt(m[1], 10);
+      const key = s.slice(m.index + m[1].length + 1, m.index + m[1].length + 1 + keyLen);
+      if (key === 'announce') {
+        const valStart = m.index + m[1].length + 1 + keyLen;
+        const valLen = parseInt(s.slice(valStart), 10);
+        const colon2 = s.indexOf(':', valStart);
+        if (colon2 !== -1) {
+          urls.push(s.slice(colon2 + 1, colon2 + 1 + valLen));
+        }
+        break;
+      }
+    }
+    // Simpler: scan for announce strings directly
+    const s2 = s.replace(/e/g, ' e ').replace(/l/g, ' l ').replace(/d/g, ' d ');
+    const parts = s2.match(/(?:\d+:)+[^\s]+/g) || [];
+    for (const p of parts) {
+      const afterColon = p.slice(p.indexOf(':') + 1);
+      if (afterColon.startsWith('http://') || afterColon.startsWith('https://') || afterColon.startsWith('udp://')) {
+        if (!urls.includes(afterColon)) urls.push(afterColon);
+      }
+    }
+
+    return { infoHash, announceUrls: [...new Set(urls)] };
+  } catch { return null; }
+}
+
 // ---- Jackett ----
 async function searchJackett(cfg, imdbId) {
   if (!cfg.jackettUrl || !cfg.jackettApiKey) return [];
@@ -218,7 +274,7 @@ async function searchJackett(cfg, imdbId) {
   const res = await fetch(url, { signal: AbortSignal.timeout(20000), headers: { Accept: 'application/json' } });
   if (!res.ok) throw new Error(`Jackett HTTP ${res.status}`);
   const data = await res.json();
-  return (data.Results || []).map(r => ({
+  const results = (data.Results || []).map(r => ({
     Title: r.Title,
     Seeders: r.Seeders || 0,
     Size: r.Size || 0,
@@ -226,8 +282,26 @@ async function searchJackett(cfg, imdbId) {
     MagnetUri: r.Link || '',
     CategoryDesc: r.CategoryDesc || '',
     _provider: 'Jackett',
-  })).filter(r => r.MagnetUri || r.InfoHash)
-    .sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
+  })).filter(r => r.MagnetUri || r.InfoHash);
+
+  // For HTTP download URLs, fetch .torrent → create magnet URI with tracker announce (preserves passkey)
+  const httpResults = results.filter(r => r.MagnetUri && !r.MagnetUri.startsWith('magnet:') && !r.InfoHash);
+  if (httpResults.length > 0) {
+    await Promise.all(httpResults.slice(0, 5).map(async r => {
+      try {
+        const tf = await fetch(r.MagnetUri, { signal: AbortSignal.timeout(10000) });
+        if (!tf.ok) return;
+        const buf = Buffer.from(await tf.arrayBuffer());
+        const meta = parseTorrentMeta(buf);
+        if (!meta || !meta.infoHash) return;
+        r.InfoHash = meta.infoHash;
+        const trParams = meta.announceUrls.filter(Boolean).map(u => `tr=${encodeURIComponent(u)}`).join('&');
+        r.MagnetUri = `magnet:?xt=urn:btih:${meta.infoHash}&dn=${encodeURIComponent(r.Title || '')}${trParams ? '&' + trParams : ''}`;
+      } catch {}
+    }));
+  }
+
+  return results.sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
 }
 
 // ---- Prowlarr ----
@@ -343,7 +417,7 @@ async function searchJacred(cfg, imdbId) {
   const res = await fetch(url, { signal: AbortSignal.timeout(20000), headers: { Accept: 'application/json' } });
   if (!res.ok) throw new Error(`Jacred HTTP ${res.status}`);
   const data = await res.json();
-  return (data.Results || []).map(r => ({
+  const results = (data.Results || []).map(r => ({
     Title: r.Title,
     Seeders: r.Seeders || 0,
     Size: r.Size || 0,
@@ -351,8 +425,25 @@ async function searchJacred(cfg, imdbId) {
     MagnetUri: r.Link || '',
     CategoryDesc: r.CategoryDesc || '',
     _provider: 'Jacred',
-  })).filter(r => r.MagnetUri || r.InfoHash)
-    .sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
+  })).filter(r => r.MagnetUri || r.InfoHash);
+
+  const httpResults = results.filter(r => r.MagnetUri && !r.MagnetUri.startsWith('magnet:') && !r.InfoHash);
+  if (httpResults.length > 0) {
+    await Promise.all(httpResults.slice(0, 5).map(async r => {
+      try {
+        const tf = await fetch(r.MagnetUri, { signal: AbortSignal.timeout(10000) });
+        if (!tf.ok) return;
+        const buf = Buffer.from(await tf.arrayBuffer());
+        const meta = parseTorrentMeta(buf);
+        if (!meta || !meta.infoHash) return;
+        r.InfoHash = meta.infoHash;
+        const trParams = meta.announceUrls.filter(Boolean).map(u => `tr=${encodeURIComponent(u)}`).join('&');
+        r.MagnetUri = `magnet:?xt=urn:btih:${meta.infoHash}&dn=${encodeURIComponent(r.Title || '')}${trParams ? '&' + trParams : ''}`;
+      } catch {}
+    }));
+  }
+
+  return results.sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
 }
 
 // ============================================================================
