@@ -179,7 +179,7 @@ function buildStreamEntry(r, cfg) {
     name: `${r._provider ? '[' + r._provider.toUpperCase() + '] ' : ''}${label}`,
     infoHash: r.InfoHash,
     fileIdx: 0,
-    sources: extractTrackers(r.MagnetUri),
+    sources: (r._trackers || []).map(t => `tracker:${t}`),
     behaviorHints: {
       videoSize: r.Size || 0,
       filename: r.Title
@@ -226,10 +226,19 @@ function parseTorznabItems(items, provider) {
   }).filter(r => r.MagnetUri || r.InfoHash);
 }
 
-// Parse .torrent buffer → infoHash
+// Parse .torrent buffer → infoHash + announceUrls
 function parseTorrentFile(buf) {
   try {
     const s = buf.toString('binary');
+    // extract announce URL
+    const urls = [];
+    const annMatch = s.match(/8:announce(\d+):/);
+    if (annMatch) {
+      const len = parseInt(annMatch[1], 10);
+      const start = annMatch.index + annMatch[0].length;
+      urls.push(s.slice(start, start + len));
+    }
+    // extract infoHash
     const infoIdx = s.indexOf('4:info');
     if (infoIdx === -1) return null;
     let i = infoIdx + 6;
@@ -243,11 +252,11 @@ function parseTorrentFile(buf) {
       if (ch >= '0' && ch <= '9') { const colon = s.indexOf(':', i); if (colon === -1) return null; i = colon + 1 + parseInt(s.slice(i, colon), 10); continue; }
       i++;
     }
-    return { infoHash: crypto.createHash('sha1').update(buf.slice(infoIdx + 6, i)).digest('hex').toLowerCase() };
+    return { infoHash: crypto.createHash('sha1').update(buf.slice(infoIdx + 6, i)).digest('hex').toLowerCase(), announceUrls: urls };
   } catch { return null; }
 }
 
-// Follow Jackett proxy → get infoHash (via redirect or .torrent parse)
+// Follow Jackett proxy → get infoHash (+ announce URLs via .torrent parse)
 async function resolveProxyToMagnet(r) {
   if (!r.MagnetUri || r.MagnetUri.startsWith('magnet:') || r.InfoHash) return;
   try {
@@ -257,9 +266,14 @@ async function resolveProxyToMagnet(r) {
       r.MagnetUri = loc;
       const m = loc.match(/urn:btih:([a-f0-9]{40})/i);
       if (m) r.InfoHash = m[1].toLowerCase();
+      // also extract trackers from magnet URI
+      try { const usp = new URLSearchParams(loc.slice(loc.indexOf('?') + 1)); usp.forEach((v, k) => { if (k === 'tr') { if (!r._trackers) r._trackers = []; r._trackers.push(v); } }); } catch {}
     } else if (resp.ok && resp.headers.get('content-type')?.includes('bittorrent')) {
       const meta = parseTorrentFile(Buffer.from(await resp.arrayBuffer()));
-      if (meta) r.InfoHash = meta.infoHash;
+      if (meta) {
+        r.InfoHash = meta.infoHash;
+        if (meta.announceUrls?.length) r._trackers = meta.announceUrls;
+      }
     }
   } catch {}
 }
