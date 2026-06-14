@@ -161,6 +161,22 @@ function guessExtension(cat) {
   return 'mkv';
 }
 
+// Extract quality label from release title (Torrentio-style)
+function guessQuality(title) {
+  if (!title) return 'Unknown';
+  const parts = [];
+  const resMatch = title.match(/\b(4K|2160p|1080p|1080i|720p|576p|540p|480p|360p)\b/i);
+  if (resMatch) parts.push(resMatch[1].toUpperCase());
+  if (/WEB-DL|WEBRip/i.test(title)) parts.push('WEB-DL');
+  else if (/BluRay|BRRip|BDRip/i.test(title)) parts.push('BluRay');
+  else if (/HDTV/i.test(title)) parts.push('HDTV');
+  else if (/DVDRip|DVD/i.test(title)) parts.push('DVD');
+  else if (/CAM|TS|TC|TeleSync/i.test(title)) parts.push('CAM');
+  if (/HEVC|x265|h265/i.test(title)) parts.push('HEVC');
+  else if (/x264|h264|AVC/i.test(title)) parts.push('h264');
+  return parts.length ? parts.join('|') : 'Unknown';
+}
+
 function buildStreamEntry(r, cfg) {
   const sizeLabel = r.Size ? ` [${(r.Size / 1e9).toFixed(1)}GB]` : '';
   const label = `⬆${r.Seeders || 0} ${r.Title}${sizeLabel}`;
@@ -200,20 +216,24 @@ function buildStreamEntry(r, cfg) {
       },
     };
   }
-  // Non-TorrServer mode: Torrentio-format stream
-  const stream = {
-    name,
-    title: `${r._provider || ''} | ⬆${r.Seeders || 0}${sizeLabel}`,
+  // Non-TorrServer: Torrentio-format (name\nquality, title with emoji)
+  const quality = guessQuality(r.Title);
+  const provName = r._provider || 'Unknown';
+  const entry = {
+    name: `${provName}\n${quality}`,
+    title: `${r.Title}\n👤 ${r.Seeders || 0} 💾 ${r.Size ? (r.Size / 1e9).toFixed(2) + ' GB' : '?'} ⚙️ ${provName}`,
     infoHash: r.InfoHash,
+    fileIdx: 0,
     behaviorHints: {
+      bingeGroup: `${provName.toLowerCase()}|${quality}`,
       videoSize: r.Size || 0,
       filename: r.Title
         ? `${r.Title.replace(/[^a-zA-Z0-9._ -]/g, '')}.${guessExtension(r.CategoryDesc)}`
         : 'video.mkv',
     },
   };
-  if (r._trackers?.length) stream.sources = r._trackers.map(t => `tracker:${t}`);
-  return stream;
+  if (r._trackers?.length) entry.sources = r._trackers.map(t => `tracker:${t}`);
+  return entry;
 }
 
 // ---- Jackett (Torznab API) ----
