@@ -196,16 +196,14 @@ function buildStreamEntry(r, cfg) {
       const p = encodeURIComponent(cfg.torrServerPassword || '');
       baseUrl = baseUrl.replace(/^(https?:\/\/)/i, `$1${u}:${p}@`);
     }
-    // Use MagnetUri if available, otherwise construct from InfoHash + trackers
+    // ONLY pass clean magnet URIs to TorrServer — no HTTP URLs
     let torrentLink = r.MagnetUri;
     if (!torrentLink && r.InfoHash) {
       torrentLink = `magnet:?xt=urn:btih:${r.InfoHash}`;
       if (r._trackers?.length) torrentLink += '&' + r._trackers.map(t => `tr=${t}`).join('&');
     }
-    // Proxy URL → route through addon /api/dl (TorrServer can't fetch Jackett directly)
-    if (torrentLink && !torrentLink.startsWith('magnet:') && cfg._addonBase) {
-      torrentLink = `${cfg._addonBase}/api/dl?url=${encodeURIComponent(torrentLink)}`;
-    }
+    // Skip if we still don't have a magnet URI (Jackett proxy not yet resolved)
+    if (!torrentLink || !torrentLink.startsWith('magnet:')) return null;
     stream.url = `${baseUrl}/stream?link=${encodeURIComponent(torrentLink)}&index=1&play${cfg.saveToDb ? '&save=true' : ''}`;
     stream.title = label;
     stream.behaviorHints.notWebReady = false;
@@ -268,24 +266,28 @@ function parseTorrentFile(buf) {
 async function resolveProxyToMagnet(r) {
   if (!r.MagnetUri || r.MagnetUri.startsWith('magnet:') || r.InfoHash) return;
   try {
-    const resp = await fetch(r.MagnetUri, { signal: AbortSignal.timeout(30000), redirect: 'manual' });
+    const resp = await fetch(r.MagnetUri, { signal: AbortSignal.timeout(45000), redirect: 'manual' });
+    log(`resolve ${r._provider} ${r.Title?.slice(0,30)}: HTTP ${resp.status} ct=${resp.headers.get('content-type')?.slice(0,20)}`);
     if ((resp.status === 302 || resp.status === 301) && resp.headers.get('location')?.startsWith('magnet:')) {
       const loc = resp.headers.get('location');
       r.MagnetUri = loc;
       const m = loc.match(/urn:btih:([a-f0-9]{40})/i);
       if (m) r.InfoHash = m[1].toLowerCase();
-      // also extract trackers from magnet URI
       try { const usp = new URLSearchParams(loc.slice(loc.indexOf('?') + 1)); usp.forEach((v, k) => { if (k === 'tr') { if (!r._trackers) r._trackers = []; r._trackers.push(v); } }); } catch {}
-    } else if (resp.ok && resp.headers.get('content-type')?.includes('bittorrent')) {
-      const meta = parseTorrentFile(Buffer.from(await resp.arrayBuffer()));
+      log(`  → magnet: ${r.InfoHash?.slice(0,16)} trackers:${r._trackers?.length || 0}`);
+    } else if (resp.ok) {
+      const buf = Buffer.from(await resp.arrayBuffer());
+      if (!buf.length) { log(`  → empty body`); return; }
+      const meta = parseTorrentFile(buf);
       if (meta) {
         r.InfoHash = meta.infoHash;
         if (meta.announceUrls?.length) r._trackers = meta.announceUrls;
         r.MagnetUri = `magnet:?xt=urn:btih:${meta.infoHash}&dn=${r.Title || ''}`;
         if (meta.announceUrls?.length) r.MagnetUri += '&' + meta.announceUrls.map(u => `tr=${u}`).join('&');
-      }
-    }
-  } catch {}
+        log(`  → parsed: ${r.InfoHash?.slice(0,16)} trackers:${meta.announceUrls?.length}`);
+      } else log(`  → parseTorrentFile returned null`);
+    } else log(`  → unexpected HTTP ${resp.status}`);
+  } catch(e) { log(`resolve error ${r._provider} ${r.Title?.slice(0,20)}: ${e.message?.slice(0,60)}`); }
 }
 
 async function searchJackett(cfg, type, imdbId) {
@@ -489,7 +491,8 @@ async function handleStream(config, type, id) {
       // If TorrServer configured, route EVERYTHING through TorrServer
       if (config.torrServerUrl) {
         const s = buildStreamEntry(r, config);
-        log(`  → TorrServer: ${s.url?.slice(0, 100)}...`);
+        if (s) log(`  → TorrServer: magnet ${r.InfoHash?.slice(0, 12)}...`);
+        else log(`  → TorrServer skip: no magnet for ${r._provider} ${r.Title?.slice(0, 30)}`);
         return s;
       }
       // Proxy-style providers (Torrentio, Comet, MediaFusion) — pass through raw stream format
@@ -500,7 +503,7 @@ async function handleStream(config, type, id) {
         return s;
       }
       return buildStreamEntry(r, config);
-    });
+    }).filter(Boolean);
 
     log(`  → ${streams.length} streams returned (${results.length} raw, ${unique.length} unique)`);
     const out = { streams, cacheMaxAge: 600 };
