@@ -208,63 +208,12 @@ function buildStreamEntry(r, cfg) {
 // ---- Jackett (Torznab API) ----
 const torznabParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
 
-function torrentMeta(tfBuf) {
-  try {
-    const s = tfBuf.toString('binary');
-    const infoIdx = s.indexOf('4:info');
-    if (infoIdx === -1) return null;
-    let i = infoIdx + 6;
-    if (s[i] !== 'd') return null;
-    let depth = 1; i++;
-    while (depth > 0 && i < s.length) {
-      const ch = s[i];
-      if (ch === 'e') { depth--; i++; continue; }
-      if (ch === 'd' || ch === 'l') { depth++; i++; continue; }
-      if (ch === 'i') { while (i < s.length && s[i] !== 'e') i++; i++; continue; }
-      if (ch >= '0' && ch <= '9') {
-        const colon = s.indexOf(':', i);
-        if (colon === -1) return null;
-        i = colon + 1 + parseInt(s.slice(i, colon), 10);
-        continue;
-      }
-      i++;
-    }
-    const infoHash = crypto.createHash('sha1').update(tfBuf.slice(infoIdx + 6, i)).digest('hex').toLowerCase();
-    // Extract announce URL
-    const urls = [];
-    const annRe = /8:announce/g;
-    const am = annRe.exec(s);
-    if (am) {
-      const lenStart = am.index + am[0].length;
-      const colon = s.indexOf(':', lenStart);
-      if (colon !== -1) {
-        const len = parseInt(s.slice(lenStart, colon), 10);
-        urls.push(s.slice(colon + 1, colon + 1 + len));
-      }
-    }
-    return { infoHash, announceUrls: urls };
-  } catch { return null; }
-}
-
-async function searchJackett(cfg, type, imdbId) {
-  if (!cfg.jackettUrl || !cfg.jackettApiKey) return [];
-  const t = type === 'series' ? 'tvsearch' : 'movie';
-  const params = new URLSearchParams({ apikey: cfg.jackettApiKey, t, cat: '', imdbid: imdbId, extended: '1' });
-  const url = `${cfg.jackettUrl.replace(/\/+$/, '')}/api/v2.0/indexers/all/results/torznab/api?${params}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
-  if (!res.ok) throw new Error(`Jackett HTTP ${res.status}`);
-  const text = await res.text();
-  let parsed;
-  try { parsed = torznabParser.parse(text); } catch { return []; }
-  const items = parsed?.rss?.channel?.item;
+function parseTorznabItems(items, provider) {
   if (!items) return [];
   const arr = Array.isArray(items) ? items : [items];
-  const results = arr.map(item => {
+  return arr.map(item => {
     const attrs = {};
-    const rawAttr = item['torznab:attr'];
-    if (rawAttr) {
-      (Array.isArray(rawAttr) ? rawAttr : [rawAttr]).forEach(a => { attrs[a['@_name']] = a['@_value']; });
-    }
+    (Array.isArray(item['torznab:attr']) ? item['torznab:attr'] : [item['torznab:attr']]).filter(Boolean).forEach(a => { attrs[a['@_name']] = a['@_value']; });
     return {
       Title: item.title || '',
       Seeders: parseInt(attrs.seeders || '0', 10),
@@ -272,27 +221,19 @@ async function searchJackett(cfg, type, imdbId) {
       InfoHash: (attrs.infohash || '').toLowerCase(),
       MagnetUri: attrs.magneturl || item.link || '',
       CategoryDesc: attrs.category || '',
-      _provider: 'Jackett',
+      _provider: provider,
     };
   }).filter(r => r.MagnetUri || r.InfoHash);
+}
 
-  // HTTP download → fetch .torrent → magnet URI (preserves passkey)
-  const httpList = results.filter(r => r.MagnetUri && !r.MagnetUri.startsWith('magnet:') && !r.InfoHash);
-  if (httpList.length > 0) {
-    await Promise.all(httpList.slice(0, 5).map(async r => {
-      try {
-        const tf = await fetch(r.MagnetUri, { signal: AbortSignal.timeout(25000) });
-        if (!tf.ok) return;
-        const meta = torrentMeta(Buffer.from(await tf.arrayBuffer()));
-        if (!meta || !meta.infoHash) return;
-        r.InfoHash = meta.infoHash;
-        r.MagnetUri = `magnet:?xt=urn:btih:${meta.infoHash}&dn=${r.Title || ''}`;
-        if (meta.announceUrls.length) r.MagnetUri += `&tr=${meta.announceUrls[0]}`;
-      } catch {}
-    }));
-  }
-
-  return results.sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
+async function searchJackett(cfg, type, imdbId) {
+  if (!cfg.jackettUrl || !cfg.jackettApiKey) return [];
+  const params = new URLSearchParams({ apikey: cfg.jackettApiKey, t: 'search', cat: '', q: imdbId, extended: '1' });
+  const url = `${cfg.jackettUrl.replace(/\/+$/, '')}/api/v2.0/indexers/all/results/torznab/api?${params}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
+  if (!res.ok) throw new Error(`Jackett HTTP ${res.status}`);
+  const parsed = torznabParser.parse(await res.text());
+  return parseTorznabItems(parsed?.rss?.channel?.item, 'Jackett').sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
 }
 
 // ---- Prowlarr ----
@@ -403,50 +344,12 @@ async function searchMediaFusion(cfg, type, id) {
 // ---- Jacred (Jackett-compatible) ----
 async function searchJacred(cfg, type, imdbId) {
   if (!cfg.jacredUrl || !cfg.jacredApiKey) return [];
-  const t = type === 'series' ? 'tvsearch' : 'movie';
-  const params = new URLSearchParams({ apikey: cfg.jacredApiKey, t, cat: '', imdbid: imdbId, extended: '1' });
+  const params = new URLSearchParams({ apikey: cfg.jacredApiKey, t: 'search', cat: '', q: imdbId, extended: '1' });
   const url = `${cfg.jacredUrl.replace(/\/+$/, '')}/api/v2.0/indexers/all/results/torznab/api?${params}`;
   const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
   if (!res.ok) throw new Error(`Jacred HTTP ${res.status}`);
-  const text = await res.text();
-  let parsed;
-  try { parsed = torznabParser.parse(text); } catch { return []; }
-  const items = parsed?.rss?.channel?.item;
-  if (!items) return [];
-  const arr = Array.isArray(items) ? items : [items];
-  const results = arr.map(item => {
-    const attrs = {};
-    const rawAttr = item['torznab:attr'];
-    if (rawAttr) {
-      (Array.isArray(rawAttr) ? rawAttr : [rawAttr]).forEach(a => { attrs[a['@_name']] = a['@_value']; });
-    }
-    return {
-      Title: item.title || '',
-      Seeders: parseInt(attrs.seeders || '0', 10),
-      Size: parseInt(item.size || attrs.size || '0', 10),
-      InfoHash: (attrs.infohash || '').toLowerCase(),
-      MagnetUri: attrs.magneturl || item.link || '',
-      CategoryDesc: attrs.category || '',
-      _provider: 'Jacred',
-    };
-  }).filter(r => r.MagnetUri || r.InfoHash);
-
-  const httpList = results.filter(r => r.MagnetUri && !r.MagnetUri.startsWith('magnet:') && !r.InfoHash);
-  if (httpList.length > 0) {
-    await Promise.all(httpList.slice(0, 5).map(async r => {
-      try {
-        const tf = await fetch(r.MagnetUri, { signal: AbortSignal.timeout(25000) });
-        if (!tf.ok) return;
-        const meta = torrentMeta(Buffer.from(await tf.arrayBuffer()));
-        if (!meta || !meta.infoHash) return;
-        r.InfoHash = meta.infoHash;
-        r.MagnetUri = `magnet:?xt=urn:btih:${meta.infoHash}&dn=${r.Title || ''}`;
-        if (meta.announceUrls.length) r.MagnetUri += `&tr=${meta.announceUrls[0]}`;
-      } catch {}
-    }));
-  }
-
-  return results.sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
+  const parsed = torznabParser.parse(await res.text());
+  return parseTorznabItems(parsed?.rss?.channel?.item, 'Jacred').sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
 }
 
 // ============================================================================
@@ -666,29 +569,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
         <div class="test-result" id="prowlarrTestResult"></div>
       </div>
     </div>
-    <!-- Torrentio -->
-    <div class="card">
-      <div class="card-header">
-        Torrentio <span class="badge" id="torrentioBadge">Off</span>
-      </div>
-      <div class="provider-card">
-        <div class="provider-header">
-          <span class="provider-name">Torrentio</span>
-          <label class="toggle" id="torrentioToggle"></label>
-        </div>
-        <div class="form-group">
-          <label>Torrentio Manifest URL</label>
-          <input type="url" id="torrentioUrl" placeholder="https://torrentio.strem.fun/manifest.json">
-          <div class="hint">Or with config: <code>https://torrentio.strem.fun/&lt;config&gt;/manifest.json</code></div>
-        </div>
-        <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end">
-          <div style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-dim)">
-            Priority
-            <input type="number" id="torrentioPriority" min="1" max="6" value="3" style="width:40px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:11px;text-align:center">
-          </div>
-        </div>
-      </div>
-    </div>
     <!-- Comet -->
     <div class="card">
       <div class="card-header">
@@ -711,6 +591,27 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
           </div>
         </div>
         <div class="test-result" id="cometTestResult"></div>
+      </div>
+    </div>
+    <!-- Torrentio -->
+    <div class="card">
+      <div class="card-header">
+        Torrentio <span class="badge" id="torrentioBadge">Off</span>
+        <label class="toggle" id="torrentioToggle" style="margin-left:auto"></label>
+      </div>
+      <div class="card-body" id="torrentioSection">
+        <div class="form-group">
+          <label>Torrentio Manifest URL</label>
+          <input type="url" id="torrentioUrl" placeholder="https://torrentio.strem.fun/manifest.json">
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn btn-secondary btn-sm" onclick="testTorrentio()">Test</button>
+          <div style="margin-left:auto;display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-dim)">
+            Priority
+            <input type="number" id="torrentioPriority" min="1" max="6" value="2" style="width:40px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:11px;text-align:center">
+          </div>
+        </div>
+        <div class="test-result" id="torrentioTestResult"></div>
       </div>
     </div>
     <!-- Jacred -->
@@ -971,6 +872,19 @@ async function testComet() {
     document.getElementById('cometBadge').className = 'badge ' + (d.ok ? 'success' : 'error');
   } catch (e) { el.className = 'test-result show error'; el.textContent = e.message; }
 }
+async function testTorrentio() {
+  const url = document.getElementById('torrentioUrl').value || 'https://torrentio.strem.fun/manifest.json';
+  const el = document.getElementById('torrentioTestResult');
+  try {
+    el.className = 'test-result'; el.textContent = 'Testing...';
+    const r = await fetch('/api/test/torrentio?url=' + encodeURIComponent(url));
+    const d = await r.json();
+    el.className = 'test-result show ' + (d.ok ? 'success' : 'error');
+    el.textContent = d.ok ? d.message : d.message;
+    document.getElementById('torrentioBadge').textContent = d.ok ? 'OK' : 'Error';
+    document.getElementById('torrentioBadge').className = 'badge ' + (d.ok ? 'success' : 'error');
+  } catch (e) { el.className = 'test-result show error'; el.textContent = e.message; }
+}
 async function testJacred() {
   const url = document.getElementById('jacredUrl').value;
   const key = document.getElementById('jacredApiKey').value;
@@ -1207,6 +1121,22 @@ app.get('/api/test/comet', async (req, res) => {
     const data = await r.json();
     const count = (data.streams || []).length;
     res.json({ ok: true, message: `✅ Comet OK — ${count} streams for The Matrix` });
+  } catch (e) {
+    res.json({ ok: false, message: e.message });
+  }
+});
+
+// ---- API: Test Torrentio ----
+app.get('/api/test/torrentio', async (req, res) => {
+  try {
+    const { url } = req.query;
+    const r = await fetch(`${stripManifestPath(url || 'https://torrentio.strem.fun')}/stream/movie/tt0133093.json`, {
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!r.ok) { res.json({ ok: false, message: `HTTP ${r.status}` }); return; }
+    const data = await r.json();
+    const count = (data.streams || []).length;
+    res.json({ ok: true, message: `✅ Torrentio OK — ${count} streams for The Matrix` });
   } catch (e) {
     res.json({ ok: false, message: e.message });
   }
