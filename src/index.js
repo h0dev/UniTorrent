@@ -202,6 +202,10 @@ function buildStreamEntry(r, cfg) {
       torrentLink = `magnet:?xt=urn:btih:${r.InfoHash}`;
       if (r._trackers?.length) torrentLink += '&' + r._trackers.map(t => `tr=${t}`).join('&');
     }
+    // Proxy URL → route through addon /api/dl (TorrServer can't fetch Jackett directly)
+    if (torrentLink && !torrentLink.startsWith('magnet:') && cfg._addonBase) {
+      torrentLink = `${cfg._addonBase}/api/dl?url=${encodeURIComponent(torrentLink)}`;
+    }
     stream.url = `${baseUrl}/stream?link=${encodeURIComponent(torrentLink)}&index=1&play${cfg.saveToDb ? '&save=true' : ''}`;
     stream.title = label;
     stream.behaviorHints.notWebReady = false;
@@ -264,7 +268,7 @@ function parseTorrentFile(buf) {
 async function resolveProxyToMagnet(r) {
   if (!r.MagnetUri || r.MagnetUri.startsWith('magnet:') || r.InfoHash) return;
   try {
-    const resp = await fetch(r.MagnetUri, { signal: AbortSignal.timeout(15000), redirect: 'manual' });
+    const resp = await fetch(r.MagnetUri, { signal: AbortSignal.timeout(30000), redirect: 'manual' });
     if ((resp.status === 302 || resp.status === 301) && resp.headers.get('location')?.startsWith('magnet:')) {
       const loc = resp.headers.get('location');
       r.MagnetUri = loc;
@@ -1066,6 +1070,26 @@ function configFromQuery(q) {
   };
 }
 
+// ---- Proxy endpoint: TorrServer → addon → Jackett ----
+// TorrServer cannot fetch Jackett proxy URLs directly (500 error).
+// This endpoint relays the .torrent file or magnet redirect.
+app.get('/api/dl', async (req, res) => {
+  const url = req.query.url;
+  if (!url) return res.status(400).json({ error: 'Missing url' });
+  try {
+    const resp = await fetch(url, { signal: AbortSignal.timeout(30000), redirect: 'manual' });
+    if ((resp.status === 301 || resp.status === 302) && resp.headers.get('location')?.startsWith('magnet:')) {
+      return res.redirect(resp.headers.get('location'));
+    }
+    const buf = Buffer.from(await resp.arrayBuffer());
+    res.set('Content-Type', 'application/x-bittorrent');
+    res.send(buf);
+  } catch(e) {
+    err(`/api/dl error: ${e.message?.slice(0, 80)} url=${url?.slice(0, 60)}...`);
+    res.status(502).json({ error: e.message });
+  }
+});
+
 // ---- Clean routes for Stremio native config ----
 // Manifest (no embedded config — Stremio shows config form)
 app.get('/manifest.json', (req, res) => {
@@ -1074,6 +1098,7 @@ app.get('/manifest.json', (req, res) => {
 // Stream search with config from query params (Stremio passes config values)
 app.get('/stream/:type/:id.json', async (req, res) => {
   const cfg = configFromQuery(req.query);
+  cfg._addonBase = `${req.protocol}://${req.get('host')}`;
   log(`Clean stream: ${req.params.type} ${req.params.id} from query config`);
   const result = await handleStream(cfg, req.params.type, req.params.id);
   res.json(result);
@@ -1247,6 +1272,7 @@ app.get('/:config/manifest.json', (req, res) => {
 });
 app.get('/:config/stream/:type/:id.json', async (req, res) => {
   const config = decodeConfig(req.params.config);
+  config._addonBase = `${req.protocol}://${req.get('host')}`;
   const result = await handleStream(config, req.params.type, req.params.id);
   res.json(result);
 });
@@ -1271,6 +1297,7 @@ app.get('/stremio/:uuid/:config/manifest.json', (req, res) => {
 
 app.get('/stremio/:uuid/:config/stream/:type/:id.json', async (req, res) => {
   const config = decodeConfig(req.params.config);
+  config._addonBase = `${req.protocol}://${req.get('host')}`;
   const { type, id } = req.params;
   const result = await handleStream(config, type, id);
   res.json(result);
