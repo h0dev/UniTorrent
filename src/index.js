@@ -196,14 +196,9 @@ function buildStreamEntry(r, cfg) {
       const p = encodeURIComponent(cfg.torrServerPassword || '');
       baseUrl = baseUrl.replace(/^(https?:\/\/)/i, `$1${u}:${p}@`);
     }
-    // ONLY pass clean magnet URIs to TorrServer — no HTTP URLs
-    let torrentLink = r.MagnetUri;
-    if (!torrentLink && r.InfoHash) {
-      torrentLink = `magnet:?xt=urn:btih:${r.InfoHash}`;
-      if (r._trackers?.length) torrentLink += '&' + r._trackers.map(t => `tr=${t}`).join('&');
-    }
-    // Skip if we still don't have a magnet URI (Jackett proxy not yet resolved)
-    if (!torrentLink || !torrentLink.startsWith('magnet:')) return null;
+    // TorrServer: only minimal magnet URI (`xt=urn:btih:<hash>`), no dn/tr
+    if (!r.InfoHash) return null;
+    const torrentLink = `magnet:?xt=urn:btih:${r.InfoHash}`;
     stream.url = `${baseUrl}/stream?link=${encodeURIComponent(torrentLink)}&index=1&play${cfg.saveToDb ? '&save=true' : ''}`;
     stream.title = label;
     stream.behaviorHints.notWebReady = false;
