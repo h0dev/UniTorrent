@@ -208,7 +208,7 @@ function buildStreamEntry(r, cfg) {
       description: `${r._provider || ''} | ${sizeLabel ? (r.Size / 1e9).toFixed(1)+'GB' : ''} | ⬆${r.Seeders || 0}`,
       url: `${baseUrl}/stream?link=${encodeURIComponent(torrentLink)}&index=1&play${cfg.saveToDb ? '&save=true' : ''}`,
       behaviorHints: {
-        notWebReady: true,
+        notWebReady: false,
         videoSize: r.Size || 0,
         filename: r.Title
           ? `${r.Title.replace(/[^a-zA-Z0-9._ -]/g, '')}.${guessExtension(r.CategoryDesc)}`
