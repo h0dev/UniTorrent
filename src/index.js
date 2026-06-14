@@ -193,7 +193,6 @@ function buildStreamEntry(r, cfg) {
     },
   };
   if (cfg.torrServerUrl) {
-    delete stream.infoHash; delete stream.fileIdx; delete stream.sources;
     let baseUrl = cfg.torrServerUrl.replace(/\/$/, '');
     // Embed HTTP Basic Auth in URL if credentials provided
     if (cfg.torrServerUser || cfg.torrServerPassword) {
@@ -222,7 +221,7 @@ function buildStreamEntry(r, cfg) {
     // encodeURIComponent handles ? & etc. in the URL
     stream.url = `${baseUrl}/stream?link=${encodeURIComponent(torrentLink)}&index=1&play${cfg.saveToDb ? '&save=true' : ''}`;
     stream.title = label;
-    stream.behaviorHints.notWebReady = false;
+    stream.behaviorHints.notWebReady = true;
   }
   return stream;
 }
