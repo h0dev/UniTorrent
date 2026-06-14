@@ -201,23 +201,17 @@ function buildStreamEntry(r, cfg) {
       const p = encodeURIComponent(cfg.torrServerPassword || '');
       baseUrl = baseUrl.replace(/^(https?:\/\/)/i, `$1${u}:${p}@`);
     }
-    // TorrServer: prefer .torrent URL (private trackers need the file), fallback magnet, fallback proxy URL
+    // TorrServer: only verified results (magnet or cached .torrent)
+    if (!r.InfoHash) return null;
     let torrentLink;
-    if (r.InfoHash) {
-      const cached = torrentCache.get(r.InfoHash);
-      if (cached && cfg._addonBase) {
-        // Serve the cached .torrent file directly — TorrServer downloads and parses it
-        torrentLink = `${cfg._addonBase}/api/torrent/${r.InfoHash}.torrent`;
-      } else {
-        // No cached .torrent — magnet URI with trackers
-        torrentLink = `magnet:?xt=urn:btih:${r.InfoHash}`;
-        if (r._trackers?.length) torrentLink += '&' + r._trackers.map(t => `tr=${t}`).join('&');
-      }
-    } else if (r.MagnetUri) {
-      // Fallback: original Jackett proxy URL — TorrServer can handle some live proxies directly
-      torrentLink = r.MagnetUri;
+    const cached = torrentCache.get(r.InfoHash);
+    if (cached && cfg._addonBase) {
+      // Serve the cached .torrent file directly — TorrServer downloads and parses it
+      torrentLink = `${cfg._addonBase}/api/torrent/${r.InfoHash}.torrent`;
     } else {
-      return null; // nothing to pass to TorrServer
+      // No cached .torrent — magnet URI with trackers
+      torrentLink = `magnet:?xt=urn:btih:${r.InfoHash}`;
+      if (r._trackers?.length) torrentLink += '&' + r._trackers.map(t => `tr=${t}`).join('&');
     }
     // encodeURIComponent handles ? & etc. in the URL
     stream.url = `${baseUrl}/stream?link=${encodeURIComponent(torrentLink)}&index=1&play${cfg.saveToDb ? '&save=true' : ''}`;
@@ -336,8 +330,8 @@ async function searchJackett(cfg, type, imdbId) {
   if (!res.ok) throw new Error(`Jackett HTTP ${res.status}`);
   const parsed = torznabParser.parse(await res.text());
   const results = parseTorznabItems(parsed?.rss?.channel?.item, 'Jackett').sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
-  // Resolve proxy → magnet for top 5
-  await Promise.all(results.slice(0, 5).map(resolveProxyToMagnet));
+  // Live check: resolve proxy → magnet for top results
+  await Promise.all(results.slice(0, 15).map(resolveProxyToMagnet));
   return results;
 }
 
@@ -455,7 +449,7 @@ async function searchJacred(cfg, type, imdbId) {
   if (!res.ok) throw new Error(`Jacred HTTP ${res.status}`);
   const parsed = torznabParser.parse(await res.text());
   const results = parseTorznabItems(parsed?.rss?.channel?.item, 'Jacred').sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
-  await Promise.all(results.slice(0, 5).map(resolveProxyToMagnet));
+  await Promise.all(results.slice(0, 15).map(resolveProxyToMagnet));
   return results;
 }
 
@@ -503,6 +497,18 @@ async function handleStream(config, type, id) {
     if (results.length === 0) {
       log(`  All providers returned 0 results`);
       return { streams: [] };
+    }
+
+    // Live check: try to resolve any remaining results without infoHash
+    const needCheck = results.filter(r => !r.InfoHash && r.MagnetUri && !r.MagnetUri.startsWith('magnet:')).slice(0, 10);
+    if (needCheck.length > 0) {
+      log(`  Live check: ${needCheck.length} unverified results`);
+      await Promise.allSettled(needCheck.map(async r => {
+        try {
+          const resp = await fetch(r.MagnetUri, { method: 'HEAD', signal: AbortSignal.timeout(10000) });
+          if (resp.ok || resp.status === 302) await resolveProxyToMagnet(r);
+        } catch {}
+      }));
     }
 
     // Dedup by infoHash
@@ -1124,26 +1130,6 @@ app.get('/api/torrent/:hash.torrent', (req, res) => {
   res.set('Content-Type', 'application/x-bittorrent');
   res.set('Content-Disposition', `attachment; filename="${hash}.torrent"`);
   res.send(entry.buf);
-});
-
-// ---- Proxy endpoint: TorrServer → addon → Jackett ----
-// TorrServer cannot fetch Jackett proxy URLs directly (500 error).
-// This endpoint relays the .torrent file or magnet redirect.
-app.get('/api/dl', async (req, res) => {
-  const url = req.query.url;
-  if (!url) return res.status(400).json({ error: 'Missing url' });
-  try {
-    const resp = await fetch(url, { signal: AbortSignal.timeout(30000), redirect: 'manual' });
-    if ((resp.status === 301 || resp.status === 302) && resp.headers.get('location')?.startsWith('magnet:')) {
-      return res.redirect(resp.headers.get('location'));
-    }
-    const buf = Buffer.from(await resp.arrayBuffer());
-    res.set('Content-Type', 'application/x-bittorrent');
-    res.send(buf);
-  } catch(e) {
-    err(`/api/dl error: ${e.message?.slice(0, 80)} url=${url?.slice(0, 60)}...`);
-    res.status(502).json({ error: e.message });
-  }
 });
 
 // ---- Clean routes for Stremio native config ----
