@@ -196,9 +196,11 @@ function buildStreamEntry(r, cfg) {
       const p = encodeURIComponent(cfg.torrServerPassword || '');
       baseUrl = baseUrl.replace(/^(https?:\/\/)/i, `$1${u}:${p}@`);
     }
-    // TorrServer: only minimal magnet URI (`xt=urn:btih:<hash>`), no dn/tr
+    // TorrServer: magnet URI with infoHash + tracker (no dn to avoid encoding issues)
     if (!r.InfoHash) return null;
-    const torrentLink = `magnet:?xt=urn:btih:${r.InfoHash}`;
+    let torrentLink = `magnet:?xt=urn:btih:${r.InfoHash}`;
+    if (r._trackers?.length) torrentLink += '&' + r._trackers.map(t => `tr=${t}`).join('&');
+    // encodeURIComponent encodes & -> %26, so TorrServer parser gets the full magnet
     stream.url = `${baseUrl}/stream?link=${encodeURIComponent(torrentLink)}&index=1&play${cfg.saveToDb ? '&save=true' : ''}`;
     stream.title = label;
     stream.behaviorHints.notWebReady = false;
