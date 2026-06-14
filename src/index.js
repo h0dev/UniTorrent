@@ -277,6 +277,8 @@ async function resolveProxyToMagnet(r) {
       if (meta) {
         r.InfoHash = meta.infoHash;
         if (meta.announceUrls?.length) r._trackers = meta.announceUrls;
+        r.MagnetUri = `magnet:?xt=urn:btih:${meta.infoHash}&dn=${r.Title || ''}`;
+        if (meta.announceUrls?.length) r.MagnetUri += '&' + meta.announceUrls.map(u => `tr=${u}`).join('&');
       }
     }
   } catch {}
