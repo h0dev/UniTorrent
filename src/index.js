@@ -200,13 +200,11 @@ function buildStreamEntry(r, cfg) {
       },
     };
   }
-  // Non-TorrServer mode: standard WebTorrent stream
+  // Non-TorrServer mode: Torrentio-format stream
   const stream = {
     name,
-    description: `${r._provider || ''} | ⬆${r.Seeders || 0} | ${sizeLabel ? (r.Size / 1e9).toFixed(1)+'GB' : ''} | ${r.InfoHash?.slice(0, 8) || ''}`.trim(),
+    title: `${r._provider || ''} | ⬆${r.Seeders || 0}${sizeLabel}`,
     infoHash: r.InfoHash,
-    fileIdx: 0,
-    sources: (r._trackers || []).map(t => `tracker:${t}`),
     behaviorHints: {
       videoSize: r.Size || 0,
       filename: r.Title
@@ -214,6 +212,7 @@ function buildStreamEntry(r, cfg) {
         : 'video.mkv',
     },
   };
+  if (r._trackers?.length) stream.sources = r._trackers.map(t => `tracker:${t}`);
   return stream;
 }
 
