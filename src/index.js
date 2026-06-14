@@ -219,9 +219,10 @@ function buildStreamEntry(r, cfg) {
   // Non-TorrServer: Torrentio-format (name\nquality, title with emoji)
   const quality = guessQuality(r.Title);
   const provName = r._provider || 'Unknown';
+  const trackerName = r._trackerName || provName;
   const entry = {
     name: `${provName}\n${quality}`,
-    title: `${r.Title}\n👤 ${r.Seeders || 0} 💾 ${r.Size ? (r.Size / 1e9).toFixed(2) + ' GB' : '?'} ⚙️ ${provName}`,
+    title: `${r.Title}\n👤 ${r.Seeders || 0} 💾 ${r.Size ? (r.Size / 1e9).toFixed(2) + ' GB' : '?'} ⚙️ ${trackerName}`,
     infoHash: r.InfoHash,
     fileIdx: 0,
     behaviorHints: {
@@ -253,6 +254,7 @@ function parseTorznabItems(items, provider) {
       MagnetUri: attrs.magneturl || item.link || '',
       CategoryDesc: attrs.category || '',
       _provider: provider,
+      _trackerName: item.jackettindexer || item.indexer || '',
     };
   }).filter(r => r.MagnetUri || r.InfoHash);
 }
@@ -381,6 +383,7 @@ async function searchProwlarr(cfg, imdbId, type) {
       MagnetUri: r.magnetUrl || '',
       CategoryDesc: (r.categories || []).map(c => c.name).join(', '),
       _provider: 'Prowlarr',
+      _trackerName: r.indexer || '',
     }))
     .sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
 }
