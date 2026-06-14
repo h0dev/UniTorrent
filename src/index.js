@@ -201,17 +201,23 @@ function buildStreamEntry(r, cfg) {
       const p = encodeURIComponent(cfg.torrServerPassword || '');
       baseUrl = baseUrl.replace(/^(https?:\/\/)/i, `$1${u}:${p}@`);
     }
-    // TorrServer: only verified results (magnet or cached .torrent)
-    if (!r.InfoHash) return null;
+    // TorrServer: prefer verified results (magnet/cached .torrent), fallback proxy URL
     let torrentLink;
-    const cached = torrentCache.get(r.InfoHash);
-    if (cached && cfg._addonBase) {
-      // Serve the cached .torrent file directly — TorrServer downloads and parses it
-      torrentLink = `${cfg._addonBase}/api/torrent/${r.InfoHash}.torrent`;
+    if (r.InfoHash) {
+      const cached = torrentCache.get(r.InfoHash);
+      if (cached && cfg._addonBase) {
+        // Serve the cached .torrent file directly — TorrServer downloads and parses it
+        torrentLink = `${cfg._addonBase}/api/torrent/${r.InfoHash}.torrent`;
+      } else {
+        // No cached .torrent — magnet URI with trackers
+        torrentLink = `magnet:?xt=urn:btih:${r.InfoHash}`;
+        if (r._trackers?.length) torrentLink += '&' + r._trackers.map(t => `tr=${t}`).join('&');
+      }
+    } else if (r.MagnetUri && !r.MagnetUri.startsWith('magnet:')) {
+      // Timeout fallback: proxy URL for results not yet resolved — TorrServer handles live ones
+      torrentLink = r.MagnetUri;
     } else {
-      // No cached .torrent — magnet URI with trackers
-      torrentLink = `magnet:?xt=urn:btih:${r.InfoHash}`;
-      if (r._trackers?.length) torrentLink += '&' + r._trackers.map(t => `tr=${t}`).join('&');
+      return null;
     }
     // encodeURIComponent handles ? & etc. in the URL
     stream.url = `${baseUrl}/stream?link=${encodeURIComponent(torrentLink)}&index=1&play${cfg.saveToDb ? '&save=true' : ''}`;
@@ -296,7 +302,7 @@ function parseTorrentFile(buf) {
 async function resolveProxyToMagnet(r) {
   if (!r.MagnetUri || r.MagnetUri.startsWith('magnet:') || r.InfoHash) return;
   try {
-    const resp = await fetch(r.MagnetUri, { signal: AbortSignal.timeout(45000), redirect: 'manual' });
+    const resp = await fetch(r.MagnetUri, { signal: AbortSignal.timeout(20000), redirect: 'manual' });
     log(`resolve ${r._provider} ${r.Title?.slice(0,30)}: HTTP ${resp.status} ct=${resp.headers.get('content-type')?.slice(0,20)}`);
     if ((resp.status === 302 || resp.status === 301) && resp.headers.get('location')?.startsWith('magnet:')) {
       const loc = resp.headers.get('location');
@@ -330,8 +336,11 @@ async function searchJackett(cfg, type, imdbId) {
   if (!res.ok) throw new Error(`Jackett HTTP ${res.status}`);
   const parsed = torznabParser.parse(await res.text());
   const results = parseTorznabItems(parsed?.rss?.channel?.item, 'Jackett').sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
-  // Live check: resolve proxy → magnet for top results
-  await Promise.all(results.slice(0, 15).map(resolveProxyToMagnet));
+  // Live check: resolve proxy → magnet for top 10 (max 12s total)
+  await Promise.race([
+    Promise.allSettled(results.slice(0, 10).map(r => resolveProxyToMagnet(r))),
+    new Promise(r => setTimeout(r, 12000)),
+  ]);
   return results;
 }
 
@@ -449,7 +458,10 @@ async function searchJacred(cfg, type, imdbId) {
   if (!res.ok) throw new Error(`Jacred HTTP ${res.status}`);
   const parsed = torznabParser.parse(await res.text());
   const results = parseTorznabItems(parsed?.rss?.channel?.item, 'Jacred').sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
-  await Promise.all(results.slice(0, 15).map(resolveProxyToMagnet));
+  await Promise.race([
+    Promise.allSettled(results.slice(0, 10).map(r => resolveProxyToMagnet(r))),
+    new Promise(r => setTimeout(r, 12000)),
+  ]);
   return results;
 }
 
@@ -499,16 +511,14 @@ async function handleStream(config, type, id) {
       return { streams: [] };
     }
 
-    // Live check: try to resolve any remaining results without infoHash
-    const needCheck = results.filter(r => !r.InfoHash && r.MagnetUri && !r.MagnetUri.startsWith('magnet:')).slice(0, 10);
+    // Live check: try to resolve any remaining results without infoHash (max 8s)
+    const needCheck = results.filter(r => !r.InfoHash && r.MagnetUri && !r.MagnetUri.startsWith('magnet:')).slice(0, 5);
     if (needCheck.length > 0) {
       log(`  Live check: ${needCheck.length} unverified results`);
-      await Promise.allSettled(needCheck.map(async r => {
-        try {
-          const resp = await fetch(r.MagnetUri, { method: 'HEAD', signal: AbortSignal.timeout(10000) });
-          if (resp.ok || resp.status === 302) await resolveProxyToMagnet(r);
-        } catch {}
-      }));
+      await Promise.race([
+        Promise.allSettled(needCheck.map(r => resolveProxyToMagnet(r))),
+        new Promise(r => setTimeout(r, 8000)),
+      ]);
     }
 
     // Dedup by infoHash
