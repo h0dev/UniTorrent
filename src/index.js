@@ -233,13 +233,33 @@ function parseTorznabItems(items, provider) {
 function parseTorrentFile(buf) {
   try {
     const s = buf.toString('binary');
-    // extract announce URL
     const urls = [];
+    // extract announce URL (single tracker)
     const annMatch = s.match(/8:announce(\d+):/);
     if (annMatch) {
       const len = parseInt(annMatch[1], 10);
       const start = annMatch.index + annMatch[0].length;
       urls.push(s.slice(start, start + len));
+    }
+    // extract announce-list (multi-tracker tiers)
+    const alIdx = s.indexOf('13:announce-list');
+    if (alIdx !== -1) {
+      let i = alIdx + 17; // skip "13:announce-list"
+      if (s[i] === 'l') i++; // skip outer list start
+      let depth = 1; // inside outer list
+      while (i < s.length && depth > 0) {
+        if (s[i] === 'l') { i++; continue; } // inner list start
+        if (s[i] === 'e') { depth--; i++; continue; } // end of list
+        // string: <digits>:<data>
+        const colon = s.indexOf(':', i);
+        if (colon === -1) break;
+        const len = parseInt(s.slice(i, colon), 10);
+        if (isNaN(len)) break;
+        i = colon + 1;
+        const url = s.slice(i, i + len);
+        if (url && !urls.includes(url)) urls.push(url);
+        i += len;
+      }
     }
     // extract infoHash
     const infoIdx = s.indexOf('4:info');
