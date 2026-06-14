@@ -196,8 +196,12 @@ function buildStreamEntry(r, cfg) {
       const p = encodeURIComponent(cfg.torrServerPassword || '');
       baseUrl = baseUrl.replace(/^(https?:\/\/)/i, `$1${u}:${p}@`);
     }
-    // Use MagnetUri if available, otherwise construct from InfoHash
-    const torrentLink = r.MagnetUri || (r.InfoHash ? `magnet:?xt=urn:btih:${r.InfoHash}` : '');
+    // Use MagnetUri if available, otherwise construct from InfoHash + trackers
+    let torrentLink = r.MagnetUri;
+    if (!torrentLink && r.InfoHash) {
+      torrentLink = `magnet:?xt=urn:btih:${r.InfoHash}`;
+      if (r._trackers?.length) torrentLink += '&' + r._trackers.map(t => `tr=${t}`).join('&');
+    }
     stream.url = `${baseUrl}/stream?link=${encodeURIComponent(torrentLink)}&index=1&play${cfg.saveToDb ? '&save=true' : ''}`;
     stream.title = label;
     stream.behaviorHints.notWebReady = false;
