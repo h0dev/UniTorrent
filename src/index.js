@@ -233,7 +233,13 @@ function buildStreamEntry(r, cfg) {
         : 'video.mkv',
     },
   };
-  if (r._trackers?.length) entry.sources = r._trackers.map(t => `tracker:${t}`);
+  if (r._trackers?.length) {
+    entry.sources = r._trackers.map(t => `tracker:${t}`);
+    // Clean magnet URI (no tracker: prefix) for Stremio "Copy magnet" / TorrServer
+    entry.url = `magnet:?xt=urn:btih:${r.InfoHash}&dn=${encodeURIComponent(r.Title || provName)}&tr=${r._trackers.join('&tr=')}`;
+  } else if (r.InfoHash) {
+    entry.url = `magnet:?xt=urn:btih:${r.InfoHash}&dn=${encodeURIComponent(r.Title || provName)}`;
+  }
   return entry;
 }
 
