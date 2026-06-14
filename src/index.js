@@ -179,8 +179,38 @@ function guessExtension(cat) {
 function buildStreamEntry(r, cfg) {
   const sizeLabel = r.Size ? ` [${(r.Size / 1e9).toFixed(1)}GB]` : '';
   const label = `⬆${r.Seeders || 0} ${r.Title}${sizeLabel}`;
+  const name = `${r._provider ? '[' + r._provider.toUpperCase() + '] ' : ''}${label}`;
+  if (cfg.torrServerUrl) {
+    // TorrServer mode: minimal stream entry — just name + url
+    let baseUrl = cfg.torrServerUrl.replace(/\/$/, '');
+    if (cfg.torrServerUser || cfg.torrServerPassword) {
+      const u = encodeURIComponent(cfg.torrServerUser || '');
+      const p = encodeURIComponent(cfg.torrServerPassword || '');
+      baseUrl = baseUrl.replace(/^(https?:\/\/)/i, `$1${u}:${p}@`);
+    }
+    let torrentLink;
+    if (r.InfoHash) {
+      const cached = torrentCache.get(r.InfoHash);
+      if (cached && cfg._addonBase) {
+        torrentLink = `${cfg._addonBase}/api/torrent/${r.InfoHash}.torrent`;
+      } else {
+        torrentLink = `magnet:?xt=urn:btih:${r.InfoHash}`;
+        if (r._trackers?.length) torrentLink += '&' + r._trackers.map(t => `tr=${t}`).join('&');
+      }
+    } else if (r.MagnetUri && !r.MagnetUri.startsWith('magnet:')) {
+      torrentLink = r.MagnetUri;
+    } else {
+      return null;
+    }
+    return {
+      name,
+      url: `${baseUrl}/stream?link=${encodeURIComponent(torrentLink)}&index=1&play${cfg.saveToDb ? '&save=true' : ''}`,
+      behaviorHints: { notWebReady: true },
+    };
+  }
+  // Non-TorrServer mode: standard WebTorrent stream
   const stream = {
-    name: `${r._provider ? '[' + r._provider.toUpperCase() + '] ' : ''}${label}`,
+    name,
     description: `${r._provider || ''} | ⬆${r.Seeders || 0} | ${sizeLabel ? (r.Size / 1e9).toFixed(1)+'GB' : ''} | ${r.InfoHash?.slice(0, 8) || ''}`.trim(),
     infoHash: r.InfoHash,
     fileIdx: 0,
@@ -192,37 +222,6 @@ function buildStreamEntry(r, cfg) {
         : 'video.mkv',
     },
   };
-  if (cfg.torrServerUrl) {
-    let baseUrl = cfg.torrServerUrl.replace(/\/$/, '');
-    // Embed HTTP Basic Auth in URL if credentials provided
-    if (cfg.torrServerUser || cfg.torrServerPassword) {
-      const u = encodeURIComponent(cfg.torrServerUser || '');
-      const p = encodeURIComponent(cfg.torrServerPassword || '');
-      baseUrl = baseUrl.replace(/^(https?:\/\/)/i, `$1${u}:${p}@`);
-    }
-    // TorrServer: prefer verified results (magnet/cached .torrent), fallback proxy URL
-    let torrentLink;
-    if (r.InfoHash) {
-      const cached = torrentCache.get(r.InfoHash);
-      if (cached && cfg._addonBase) {
-        // Serve the cached .torrent file directly — TorrServer downloads and parses it
-        torrentLink = `${cfg._addonBase}/api/torrent/${r.InfoHash}.torrent`;
-      } else {
-        // No cached .torrent — magnet URI with trackers
-        torrentLink = `magnet:?xt=urn:btih:${r.InfoHash}`;
-        if (r._trackers?.length) torrentLink += '&' + r._trackers.map(t => `tr=${t}`).join('&');
-      }
-    } else if (r.MagnetUri && !r.MagnetUri.startsWith('magnet:')) {
-      // Timeout fallback: proxy URL for results not yet resolved — TorrServer handles live ones
-      torrentLink = r.MagnetUri;
-    } else {
-      return null;
-    }
-    // encodeURIComponent handles ? & etc. in the URL
-    stream.url = `${baseUrl}/stream?link=${encodeURIComponent(torrentLink)}&index=1&play${cfg.saveToDb ? '&save=true' : ''}`;
-    stream.title = label;
-    stream.behaviorHints.notWebReady = true;
-  }
   return stream;
 }
 
