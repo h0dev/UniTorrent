@@ -246,15 +246,17 @@ function parseTorznabItems(items, provider) {
   return arr.map(item => {
     const attrs = {};
     (Array.isArray(item['torznab:attr']) ? item['torznab:attr'] : [item['torznab:attr']]).filter(Boolean).forEach(a => { attrs[a['@_name']] = a['@_value']; });
+    const rawSize = item.size || attrs.size || '0';
+    const rawTracker = item.jackettindexer || item.indexer || '';
     return {
       Title: item.title || '',
       Seeders: parseInt(attrs.seeders || '0', 10),
-      Size: parseInt(item.size || attrs.size || '0', 10),
+      Size: parseInt(typeof rawSize === 'object' ? (rawSize['#text'] || '0') : rawSize, 10),
       InfoHash: (attrs.infohash || '').toLowerCase(),
       MagnetUri: attrs.magneturl || item.link || '',
       CategoryDesc: attrs.category || '',
       _provider: provider,
-      _trackerName: item.jackettindexer || item.indexer || '',
+      _trackerName: typeof rawTracker === 'object' ? (rawTracker['#text'] || '') : rawTracker,
     };
   }).filter(r => r.MagnetUri || r.InfoHash);
 }
