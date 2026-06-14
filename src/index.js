@@ -226,6 +226,20 @@ function parseTorznabItems(items, provider) {
   }).filter(r => r.MagnetUri || r.InfoHash);
 }
 
+// Follow Jackett proxy redirect → get real magnet URI
+async function resolveProxyToMagnet(r) {
+  if (!r.MagnetUri || r.MagnetUri.startsWith('magnet:') || r.InfoHash) return;
+  try {
+    const resp = await fetch(r.MagnetUri, { signal: AbortSignal.timeout(10000), redirect: 'manual' });
+    if ((resp.status === 302 || resp.status === 301) && resp.headers.get('location')?.startsWith('magnet:')) {
+      const loc = resp.headers.get('location');
+      r.MagnetUri = loc;
+      const m = loc.match(/urn:btih:([a-f0-9]{40})/i);
+      if (m) r.InfoHash = m[1].toLowerCase();
+    }
+  } catch {}
+}
+
 async function searchJackett(cfg, type, imdbId) {
   if (!cfg.jackettUrl || !cfg.jackettApiKey) return [];
   const params = new URLSearchParams({ apikey: cfg.jackettApiKey, t: 'search', cat: '', q: imdbId, extended: '1' });
@@ -233,7 +247,10 @@ async function searchJackett(cfg, type, imdbId) {
   const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
   if (!res.ok) throw new Error(`Jackett HTTP ${res.status}`);
   const parsed = torznabParser.parse(await res.text());
-  return parseTorznabItems(parsed?.rss?.channel?.item, 'Jackett').sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
+  const results = parseTorznabItems(parsed?.rss?.channel?.item, 'Jackett').sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
+  // Resolve proxy → magnet for top 5
+  await Promise.all(results.slice(0, 5).map(resolveProxyToMagnet));
+  return results;
 }
 
 // ---- Prowlarr ----
@@ -349,7 +366,9 @@ async function searchJacred(cfg, type, imdbId) {
   const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
   if (!res.ok) throw new Error(`Jacred HTTP ${res.status}`);
   const parsed = torznabParser.parse(await res.text());
-  return parseTorznabItems(parsed?.rss?.channel?.item, 'Jacred').sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
+  const results = parseTorznabItems(parsed?.rss?.channel?.item, 'Jacred').sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
+  await Promise.all(results.slice(0, 5).map(resolveProxyToMagnet));
+  return results;
 }
 
 // ============================================================================
