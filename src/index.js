@@ -20,6 +20,9 @@ const err = (...args) => console.error('[UniTorrent:ERR]', ...args);
 // ---- In-memory cache with per-config isolation ----
 const resultCache = new Map();
 const CACHE_TTL = 5 * 60 * 1000; // 5 min
+// .torrent file cache for TorrServer direct download
+const torrentCache = new Map();
+const TORRENT_CACHE_TTL = 30 * 60 * 1000; // 30 min
 
 function cacheKey(type, id, cfg) {
   const sig = [cfg.jackettUrl, cfg.prowlarrUrl, cfg.torrentioUrl, cfg.cometUrl, cfg.jacredUrl, cfg.mediafusionUrl].filter(Boolean).join('|');
@@ -174,9 +177,11 @@ function guessExtension(cat) {
 }
 
 function buildStreamEntry(r, cfg) {
-  const label = `⬆${r.Seeders || 0} ${r.Title}`;
+  const sizeLabel = r.Size ? ` [${(r.Size / 1e9).toFixed(1)}GB]` : '';
+  const label = `⬆${r.Seeders || 0} ${r.Title}${sizeLabel}`;
   const stream = {
     name: `${r._provider ? '[' + r._provider.toUpperCase() + '] ' : ''}${label}`,
+    description: `${r._provider || ''} | ⬆${r.Seeders || 0} | ${sizeLabel ? (r.Size / 1e9).toFixed(1)+'GB' : ''} | ${r.InfoHash?.slice(0, 8) || ''}`.trim(),
     infoHash: r.InfoHash,
     fileIdx: 0,
     sources: (r._trackers || []).map(t => `tracker:${t}`),
@@ -196,11 +201,25 @@ function buildStreamEntry(r, cfg) {
       const p = encodeURIComponent(cfg.torrServerPassword || '');
       baseUrl = baseUrl.replace(/^(https?:\/\/)/i, `$1${u}:${p}@`);
     }
-    // TorrServer: magnet URI with infoHash + tracker (no dn to avoid encoding issues)
-    if (!r.InfoHash) return null;
-    let torrentLink = `magnet:?xt=urn:btih:${r.InfoHash}`;
-    if (r._trackers?.length) torrentLink += '&' + r._trackers.map(t => `tr=${t}`).join('&');
-    // encodeURIComponent encodes & -> %26, so TorrServer parser gets the full magnet
+    // TorrServer: prefer .torrent URL (private trackers need the file), fallback magnet, fallback proxy URL
+    let torrentLink;
+    if (r.InfoHash) {
+      const cached = torrentCache.get(r.InfoHash);
+      if (cached && cfg._addonBase) {
+        // Serve the cached .torrent file directly — TorrServer downloads and parses it
+        torrentLink = `${cfg._addonBase}/api/torrent/${r.InfoHash}.torrent`;
+      } else {
+        // No cached .torrent — magnet URI with trackers
+        torrentLink = `magnet:?xt=urn:btih:${r.InfoHash}`;
+        if (r._trackers?.length) torrentLink += '&' + r._trackers.map(t => `tr=${t}`).join('&');
+      }
+    } else if (r.MagnetUri) {
+      // Fallback: original Jackett proxy URL — TorrServer can handle some live proxies directly
+      torrentLink = r.MagnetUri;
+    } else {
+      return null; // nothing to pass to TorrServer
+    }
+    // encodeURIComponent handles ? & etc. in the URL
     stream.url = `${baseUrl}/stream?link=${encodeURIComponent(torrentLink)}&index=1&play${cfg.saveToDb ? '&save=true' : ''}`;
     stream.title = label;
     stream.behaviorHints.notWebReady = false;
@@ -302,6 +321,8 @@ async function resolveProxyToMagnet(r) {
         r.MagnetUri = `magnet:?xt=urn:btih:${meta.infoHash}&dn=${r.Title || ''}`;
         if (meta.announceUrls?.length) r.MagnetUri += '&' + meta.announceUrls.map(u => `tr=${u}`).join('&');
         log(`  → parsed: ${r.InfoHash?.slice(0,16)} trackers:${meta.announceUrls?.length}`);
+        // Cache .torrent buffer for TorrServer direct download
+        torrentCache.set(r.InfoHash, { buf, time: Date.now() });
       } else log(`  → parseTorrentFile returned null`);
     } else log(`  → unexpected HTTP ${resp.status}`);
   } catch(e) { log(`resolve error ${r._provider} ${r.Title?.slice(0,20)}: ${e.message?.slice(0,60)}`); }
@@ -1089,6 +1110,21 @@ function configFromQuery(q) {
     maxResults: parseInt(q.maxResults || '5', 10) || 5,
   };
 }
+
+// ---- .torrent file download for TorrServer ----
+// TorrServer fetches the .torrent directly instead of using magnet URI
+// (needed for private trackers where infoHash alone can't find peers)
+app.get('/api/torrent/:hash.torrent', (req, res) => {
+  const hash = req.params.hash.toLowerCase();
+  const entry = torrentCache.get(hash);
+  if (!entry || (Date.now() - entry.time) > TORRENT_CACHE_TTL) {
+    torrentCache.delete(hash);
+    return res.status(404).send('Torrent not found or expired');
+  }
+  res.set('Content-Type', 'application/x-bittorrent');
+  res.set('Content-Disposition', `attachment; filename="${hash}.torrent"`);
+  res.send(entry.buf);
+});
 
 // ---- Proxy endpoint: TorrServer → addon → Jackett ----
 // TorrServer cannot fetch Jackett proxy URLs directly (500 error).
