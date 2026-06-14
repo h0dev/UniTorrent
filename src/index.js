@@ -226,16 +226,40 @@ function parseTorznabItems(items, provider) {
   }).filter(r => r.MagnetUri || r.InfoHash);
 }
 
-// Follow Jackett proxy redirect → get real magnet URI
+// Parse .torrent buffer → infoHash
+function parseTorrentFile(buf) {
+  try {
+    const s = buf.toString('binary');
+    const infoIdx = s.indexOf('4:info');
+    if (infoIdx === -1) return null;
+    let i = infoIdx + 6;
+    if (s[i] !== 'd') return null;
+    let depth = 1; i++;
+    while (depth > 0 && i < s.length) {
+      const ch = s[i];
+      if (ch === 'e') { depth--; i++; continue; }
+      if (ch === 'd' || ch === 'l') { depth++; i++; continue; }
+      if (ch === 'i') { while (i < s.length && s[i] !== 'e') i++; i++; continue; }
+      if (ch >= '0' && ch <= '9') { const colon = s.indexOf(':', i); if (colon === -1) return null; i = colon + 1 + parseInt(s.slice(i, colon), 10); continue; }
+      i++;
+    }
+    return { infoHash: crypto.createHash('sha1').update(buf.slice(infoIdx + 6, i)).digest('hex').toLowerCase() };
+  } catch { return null; }
+}
+
+// Follow Jackett proxy → get infoHash (via redirect or .torrent parse)
 async function resolveProxyToMagnet(r) {
   if (!r.MagnetUri || r.MagnetUri.startsWith('magnet:') || r.InfoHash) return;
   try {
-    const resp = await fetch(r.MagnetUri, { signal: AbortSignal.timeout(10000), redirect: 'manual' });
+    const resp = await fetch(r.MagnetUri, { signal: AbortSignal.timeout(15000), redirect: 'manual' });
     if ((resp.status === 302 || resp.status === 301) && resp.headers.get('location')?.startsWith('magnet:')) {
       const loc = resp.headers.get('location');
       r.MagnetUri = loc;
       const m = loc.match(/urn:btih:([a-f0-9]{40})/i);
       if (m) r.InfoHash = m[1].toLowerCase();
+    } else if (resp.ok && resp.headers.get('content-type')?.includes('bittorrent')) {
+      const meta = parseTorrentFile(Buffer.from(await resp.arrayBuffer()));
+      if (meta) r.InfoHash = meta.infoHash;
     }
   } catch {}
 }
@@ -437,7 +461,7 @@ async function handleStream(config, type, id) {
     });
 
     const maxResults = config.maxResults || 5;
-    const streams = unique.slice(0, maxResults).map(r => {
+    const streams = unique.slice(0, maxResults).filter(r => config.torrServerUrl || r.InfoHash).map(r => {
       // If TorrServer configured, route EVERYTHING through TorrServer
       if (config.torrServerUrl) {
         const s = buildStreamEntry(r, config);
