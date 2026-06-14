@@ -17,24 +17,9 @@ const DEBUG = process.env.DEBUG === 'true';
 const log = (...args) => { if (DEBUG) console.log('[UniTorrent]', ...args); };
 const err = (...args) => console.error('[UniTorrent:ERR]', ...args);
 
-// ---- In-memory cache with per-config isolation ----
-const resultCache = new Map();
-const CACHE_TTL = 5 * 60 * 1000; // 5 min
-// .torrent file cache for TorrServer direct download
+// ---- Torrent file cache for TorrServer (.torrent download) ----
 const torrentCache = new Map();
 const TORRENT_CACHE_TTL = 30 * 60 * 1000; // 30 min
-
-function cacheKey(type, id, cfg) {
-  const sig = [cfg.jackettUrl, cfg.prowlarrUrl, cfg.torrentioUrl, cfg.cometUrl, cfg.jacredUrl, cfg.mediafusionUrl].filter(Boolean).join('|');
-  return `${sig}:${type}:${id}`;
-}
-function cacheGet(key) {
-  const entry = resultCache.get(key);
-  if (!entry) return null;
-  if (Date.now() - entry.ts > CACHE_TTL) { resultCache.delete(key); return null; }
-  return entry.data;
-}
-function cacheSet(key, data) { resultCache.set(key, { ts: Date.now(), data }); }
 
 // ============================================================================
 // 2. MANIFEST
@@ -205,7 +190,7 @@ function buildStreamEntry(r, cfg) {
     return {
       name,
       title: label,
-      description: `${r._provider || ''} | ${sizeLabel ? (r.Size / 1e9).toFixed(1)+'GB' : ''} | ⬆${r.Seeders || 0}`,
+      infoHash: r.InfoHash,
       url: `${baseUrl}/stream?link=${encodeURIComponent(torrentLink)}&index=1&play${cfg.saveToDb ? '&save=true' : ''}`,
       behaviorHints: {
         videoSize: r.Size || 0,
@@ -474,10 +459,6 @@ async function searchJacred(cfg, type, imdbId) {
 // 5. STREAM HANDLER (multi-provider)
 // ============================================================================
 async function handleStream(config, type, id) {
-  const ck = cacheKey(type, id, config);
-  const cached = cacheGet(ck);
-  if (cached) { log(`  Cache hit for ${type}:${id}`); return cached; }
-
   try {
     const imdbId = extractIMDbId(id);
     if (!imdbId) {
@@ -565,9 +546,7 @@ async function handleStream(config, type, id) {
     }).filter(Boolean);
 
     log(`  → ${streams.length} streams returned (${results.length} raw, ${unique.length} unique)`);
-    const out = { streams, cacheMaxAge: 600 };
-    cacheSet(ck, out);
-    return out;
+    return { streams, cacheMaxAge: 600 };
   } catch (err_) {
     err(`Stream error: ${err_.message}`);
     return { streams: [] };
