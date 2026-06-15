@@ -1651,13 +1651,13 @@ app.get('/api/test/peerflix', async (req, res) => {
 app.get('/api/test/magnetz', async (req, res) => {
   try {
     const { url } = req.query;
-    const r = await fetch(`${stripManifestPath(url)}/api/search?query=tt0133093`, {
+    const r = await fetch(`${stripManifestPath(url)}/api/magnets/search?query=tt0133093&page=1`, {
       signal: AbortSignal.timeout(15000),
     });
     if (!r.ok) { res.json({ ok: false, message: `HTTP ${r.status}` }); return; }
     const data = await r.json();
     const count = (data.data || []).length;
-    res.json({ ok: true, message: `✅ Magnetz OK — ${count} streams for The Matrix` });
+    res.json({ ok: true, message: `✅ Magnetz OK — ${count} results for The Matrix` });
   } catch (e) {
     res.json({ ok: false, message: e.message });
   }
