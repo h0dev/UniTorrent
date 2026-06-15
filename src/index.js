@@ -1018,12 +1018,32 @@ function showToast(msg, type) {
 }
 function setupToggle(id) {
   const el = document.getElementById(id);
-  el.addEventListener('click', (e) => { e.preventDefault(); el.classList.toggle('active'); });
+  if (!el) return;
+  el.addEventListener('click', (e) => {
+    e.preventDefault();
+    el.classList.toggle('active');
+    // Update badge: On when toggle active + URL filled, else Off
+    const badgeId = id.replace('Toggle', 'Badge');
+    const urlId = id.replace('Toggle', 'Url').toLowerCase();
+    const urlEl = document.getElementById(urlId);
+    const badge = document.getElementById(badgeId);
+    if (badge) {
+      const hasUrl = urlEl && urlEl.value && urlEl.value.trim();
+      if (el.classList.contains('active') && hasUrl) {
+        badge.textContent = 'On';
+        badge.className = 'badge success';
+      } else {
+        badge.textContent = 'Off';
+        badge.className = 'badge';
+      }
+    }
+  });
 }
 setupToggle('jackettToggle');
 setupToggle('prowlarrToggle');
 setupToggle('torrentioToggle');
 setupToggle('cometToggle');
+setupToggle('peerflixToggle');
 setupToggle('jacredToggle');
 setupToggle('mediafusionToggle');
 function collectConfig() {
@@ -1238,6 +1258,45 @@ async function testMediafusion() {
   for (const [fieldId, toggleId] of Object.entries(toggleMap)) {
     const toggle = document.getElementById(toggleId);
     if (toggle && fields[fieldId]) toggle.classList.add('active');
+  }
+  // Sync badges after config load
+  for (const toggleId of Object.values(toggleMap)) {
+    const toggle = document.getElementById(toggleId);
+    const badgeId = toggleId.replace('Toggle', 'Badge');
+    const urlId = toggleId.replace('Toggle', 'Url').toLowerCase();
+    const urlEl = document.getElementById(urlId);
+    const badge = document.getElementById(badgeId);
+    if (badge && toggle) {
+      const hasUrl = urlEl && urlEl.value && urlEl.value.trim();
+      if (toggle.classList.contains('active') && hasUrl) {
+        badge.textContent = 'On';
+        badge.className = 'badge success';
+      } else {
+        badge.textContent = 'Off';
+        badge.className = 'badge';
+      }
+    }
+  }
+  // Auto-update badges when URL fields change
+  function syncBadge(toggleId) {
+    const toggle = document.getElementById(toggleId);
+    const badgeId = toggleId.replace('Toggle', 'Badge');
+    const urlId = toggleId.replace('Toggle', 'Url').toLowerCase();
+    const urlEl = document.getElementById(urlId);
+    const badge = document.getElementById(badgeId);
+    if (!badge || !toggle) return;
+    const hasUrl = urlEl && urlEl.value && urlEl.value.trim();
+    if (toggle.classList.contains('active') && hasUrl) {
+      badge.textContent = 'On';
+      badge.className = 'badge success';
+    } else {
+      badge.textContent = 'Off';
+      badge.className = 'badge';
+    }
+  }
+  for (const [fieldId, toggleId] of Object.entries(toggleMap)) {
+    const urlEl = document.getElementById(fieldId);
+    if (urlEl) urlEl.addEventListener('input', () => syncBadge(toggleId));
   }
 })();
 </script>
