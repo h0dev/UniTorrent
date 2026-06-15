@@ -899,11 +899,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
     <div class="card">
       <div class="card-header">
         Torrentio <span class="badge" id="torrentioBadge">Off</span>
-        <label class="toggle" id="torrentioToggle" style="margin-left:auto"></label>
       </div>
-      <div class="card-body" id="torrentioSection">
+      <div class="provider-card">
+        <div class="provider-header">
+          <span class="provider-name">Torrentio</span>
+          <label class="toggle" id="torrentioToggle"></label>
+        </div>
         <div class="form-group">
-          <label>Torrentio Manifest URL</label>
+          <label>Torrentio Manifest URL <span style="color:var(--text-dim);font-weight:400">(default: torrentio.strem.fun)</span></label>
           <input type="url" id="torrentioUrl" placeholder="https://torrentio.strem.fun/manifest.json">
         </div>
         <div style="display:flex;gap:8px;align-items:center">
@@ -1267,7 +1270,7 @@ async function testCustom() {
   const el = document.getElementById('customTestResult');
   const urls = raw.split('\n').map(u => u.trim()).filter(Boolean);
   if (!urls.length) { el.className = 'test-result show error'; el.textContent = 'Enter at least 1 URL'; return; }
-  el.className = 'test-result'; el.textContent = `Testing ${urls.length} URLs...`;
+  el.className = 'test-result'; el.textContent = 'Testing ' + urls.length + ' URLs...';
   let ok = 0, fail = 0;
   for (const url of urls) {
     try {
@@ -1277,7 +1280,7 @@ async function testCustom() {
     } catch { fail++; }
   }
   el.className = 'test-result show ' + (fail === 0 ? 'success' : ok > 0 ? 'success' : 'error');
-  el.textContent = `${ok}/${urls.length} OK, ${fail} failed`;
+  el.textContent = ok + '/' + urls.length + ' OK, ' + fail + ' failed';
   document.getElementById('customBadge').textContent = fail === 0 ? 'OK' : ok > 0 ? 'Partial' : 'Error';
   document.getElementById('customBadge').className = 'badge ' + (fail === 0 ? 'success' : ok > 0 ? 'success' : 'error');
 }
