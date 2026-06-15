@@ -21,6 +21,36 @@ const err = (...args) => console.error('[UniTorrent:ERR]', ...args);
 const torrentCache = new Map();
 const TORRENT_CACHE_TTL = 30 * 60 * 1000; // 30 min
 
+// ---- Stream result cache (per-config isolation) ----
+const streamCache = new Map();
+const STREAM_CACHE_TTL = 5 * 60 * 1000; // 5 min
+
+// Cache key includes ALL config values → unique per user, no cross-config sharing
+function streamCacheKey(type, id, cfg) {
+  const parts = [
+    cfg.jackettUrl, cfg.jackettApiKey,
+    cfg.prowlarrUrl, cfg.prowlarrApiKey,
+    cfg.torrentioUrl, cfg.torrentioConfig,
+    cfg.cometUrl,
+    cfg.jacredUrl, cfg.jacredApiKey,
+    cfg.mediafusionUrl,
+    cfg.torrServerUrl, cfg.torrServerUser, cfg.torrServerPassword, cfg.torrServerType,
+    cfg.maxResults, cfg.providerOrder?.join(','),
+    cfg.saveToDb,
+  ];
+  const sig = parts.filter(Boolean).join('|');
+  let hash = 0;
+  for (let i = 0; i < sig.length; i++) { hash = ((hash << 5) - hash) + sig.charCodeAt(i); hash |= 0; }
+  return `${hash.toString(36)}:${type}:${id}`;
+}
+function streamCacheGet(key) {
+  const entry = streamCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > STREAM_CACHE_TTL) { streamCache.delete(key); return null; }
+  return entry.data;
+}
+function streamCacheSet(key, data) { streamCache.set(key, { ts: Date.now(), data }); }
+
 // ============================================================================
 // 2. MANIFEST
 // ============================================================================
@@ -489,6 +519,9 @@ async function searchJacred(cfg, type, imdbId) {
 // 5. STREAM HANDLER (multi-provider)
 // ============================================================================
 async function handleStream(config, type, id) {
+  const ck = streamCacheKey(type, id, config);
+  const cached = streamCacheGet(ck);
+  if (cached) { log(`  Cache hit ${type}:${id}`); return cached; }
   try {
     const imdbId = extractIMDbId(id);
     if (!imdbId) {
@@ -576,7 +609,9 @@ async function handleStream(config, type, id) {
     }).filter(Boolean);
 
     log(`  → ${streams.length} streams returned (${results.length} raw, ${unique.length} unique)`);
-    return { streams, cacheMaxAge: 600 };
+    const out = { streams, cacheMaxAge: 600 };
+    streamCacheSet(ck, out);
+    return out;
   } catch (err_) {
     err(`Stream error: ${err_.message}`);
     return { streams: [] };
