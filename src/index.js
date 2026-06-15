@@ -33,6 +33,7 @@ function streamCacheKey(type, id, cfg) {
     cfg.torrentioUrl, cfg.torrentioConfig,
     cfg.cometUrl,
     cfg.jacredUrl, cfg.jacredApiKey,
+    cfg.peerflixUrl,
     cfg.mediafusionUrl,
     cfg.torrServerUrl, cfg.torrServerUser, cfg.torrServerPassword, cfg.torrServerType,
     cfg.maxResults, cfg.providerOrder?.join(','),
@@ -79,7 +80,8 @@ const MANIFEST = {
 //   p: { u: "prowlarrUrl", k: "prowlarrApiKey" },
 //   t: { u: "torrentioUrl", c: "torrentioConfigString" },
 //   o: { u: "cometUrl" },
-//   a: { u: "jacredUrl", k: "jacredApiKey" },
+//   e: { u: "peerflixUrl" },
+//   a: { u: "jacredUrl", k: "jacredApiKey" }, // k optional
 //   f: { u: "mediafusionUrl" },
 //   s: { u: "torrServerUrl", a: "user:pass", t: "official|fork" },
 //   m: 5  // maxResults
@@ -90,6 +92,7 @@ function encodeConfig(config) {
   if (config.prowlarrUrl) c.p = { u: config.prowlarrUrl.replace(/\/$/, ''), k: config.prowlarrApiKey || '' };
   if (config.torrentioEnabled && config.torrentioUrl) c.t = { u: config.torrentioUrl.replace(/\/$/, ''), c: config.torrentioConfig || '' };
   if (config.cometUrl) c.o = { u: config.cometUrl.replace(/\/$/, '') };
+  if (config.peerflixUrl) c.e = { u: config.peerflixUrl.replace(/\/$/, '') };
   if (config.jacredUrl) c.a = { u: config.jacredUrl.replace(/\/$/, ''), k: config.jacredApiKey || '' };
   if (config.mediafusionUrl) c.f = { u: config.mediafusionUrl.replace(/\/$/, '') };
   if (config.torrServerUrl) {
@@ -126,6 +129,7 @@ function decodeConfig(b64) {
       else if (d.t.e) { cfg.torrentioUrl = 'https://torrentio.strem.fun'; cfg.torrentioConfig = d.t.c || ''; }
     }
     if (d.o && d.o.u) { cfg.cometUrl = d.o.u; }
+    if (d.e && d.e.u) { cfg.peerflixUrl = d.e.u; }
     if (d.a && d.a.u) { cfg.jacredUrl = d.a.u; cfg.jacredApiKey = d.a.k || ''; }
     if (d.f && d.f.u) { cfg.mediafusionUrl = d.f.u; }
     if (d.s) {
@@ -433,7 +437,7 @@ function stripManifestPath(url) {
 
 // Provider name → config code for priority ordering
 function codeOf(provider) {
-  const map = { Jackett: 'j', Prowlarr: 'p', Torrentio: 't', Comet: 'o', Jacred: 'a', MediaFusion: 'f' };
+  const map = { Jackett: 'j', Prowlarr: 'p', Torrentio: 't', Comet: 'o', Peerflix: 'e', Jacred: 'a', MediaFusion: 'f' };
   return map[provider] || '';
 }
 
@@ -499,10 +503,30 @@ async function searchMediaFusion(cfg, type, id) {
   }));
 }
 
-// ---- Jacred (Jackett-compatible) ----
+// ---- Peerflix (Comet-compatible) ----
+async function searchPeerflix(cfg, type, id) {
+  if (!cfg.peerflixUrl) return [];
+  const url = `${stripManifestPath(cfg.peerflixUrl)}/stream/${type}/${id}.json`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+  if (!res.ok) throw new Error(`Peerflix HTTP ${res.status}`);
+  const data = await res.json();
+  return (data.streams || []).filter(s => s.infoHash || s.url).map(s => ({
+    Title: s.title || s.name || '',
+    Seeders: parseInt((s.name || '').match(/(\d+)\s*Seeders?/i)?.[1] || '0', 10),
+    Size: s.behaviorHints?.videoSize || 0,
+    InfoHash: s.infoHash || '',
+    MagnetUri: '',
+    CategoryDesc: '',
+    _provider: 'Peerflix',
+    _rawStream: s,
+  }));
+}
+
+// ---- Jacred (Jackett-compatible, API key optional) ----
 async function searchJacred(cfg, type, imdbId) {
-  if (!cfg.jacredUrl || !cfg.jacredApiKey) return [];
-  const params = new URLSearchParams({ apikey: cfg.jacredApiKey, t: 'search', cat: '', q: imdbId, extended: '1' });
+  if (!cfg.jacredUrl) return [];
+  const params = new URLSearchParams({ t: 'search', cat: '', q: imdbId, extended: '1' });
+  if (cfg.jacredApiKey) params.set('apikey', cfg.jacredApiKey);
   const url = `${cfg.jacredUrl.replace(/\/+$/, '')}/api/v2.0/indexers/all/results/torznab/api?${params}`;
   const res = await fetch(url, { signal: AbortSignal.timeout(12000) });
   if (!res.ok) throw new Error(`Jacred HTTP ${res.status}`);
@@ -536,6 +560,7 @@ async function handleStream(config, type, id) {
     if (config.prowlarrUrl) { log(`  + Prowlarr: ${config.prowlarrUrl}`); promises.push(searchProwlarr(config, imdbId, type)); }
     if (config.torrentioUrl) { log(`  + Torrentio: ${config.torrentioUrl}`); promises.push(searchTorrentio(config, type, id)); }
     if (config.cometUrl) { log(`  + Comet: ${config.cometUrl}`); promises.push(searchComet(config, type, id)); }
+    if (config.peerflixUrl) { log(`  + Peerflix: ${config.peerflixUrl}`); promises.push(searchPeerflix(config, type, id)); }
     if (config.jacredUrl) { log(`  + Jacred: ${config.jacredUrl}`); promises.push(searchJacred(config, type, imdbId)); }
     if (config.mediafusionUrl) { log(`  + MediaFusion: ${config.mediafusionUrl}`); promises.push(searchMediaFusion(config, type, id)); }
 
@@ -580,7 +605,7 @@ async function handleStream(config, type, id) {
     });
 
     // Sort by provider priority, then seeders
-    const order = config.providerOrder || ['j','p','t','o','a','f'];
+    const order = config.providerOrder || ['j','p','t','o','e','a','f'];
     const orderIdx = { j: 0, p: 1, t: 2, o: 3, a: 4, f: 5 };
     unique.sort((a, b) => {
       const pa = order.indexOf(codeOf(a._provider));
@@ -599,7 +624,7 @@ async function handleStream(config, type, id) {
         return s;
       }
       // Proxy-style providers (Torrentio, Comet, MediaFusion) — pass through raw stream format
-      if ((r._provider === 'Torrentio' || r._provider === 'Comet' || r._provider === 'MediaFusion') && r._rawStream) {
+      if ((r._provider === 'Torrentio' || r._provider === 'Comet' || r._provider === 'Peerflix' || r._provider === 'MediaFusion') && r._rawStream) {
         const s = { ...r._rawStream };
         s.name = `[${r._provider}] ${s.name || ''}`;
         log(`  → Proxy pass: ${r._provider} infoHash=${s.infoHash?.slice(0, 12)}...`);
@@ -772,6 +797,30 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
         <div class="test-result" id="cometTestResult"></div>
       </div>
     </div>
+    <!-- Peerflix -->
+    <div class="card">
+      <div class="card-header">
+        Peerflix <span class="badge" id="peerflixBadge">Off</span>
+      </div>
+      <div class="provider-card">
+        <div class="provider-header">
+          <span class="provider-name">Peerflix</span>
+          <label class="toggle" id="peerflixToggle"></label>
+        </div>
+        <div class="form-group">
+          <label>Peerflix Manifest URL</label>
+          <input type="url" id="peerflixUrl" placeholder="https://peerflix.mov/manifest.json">
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn btn-secondary btn-sm" onclick="testPeerflix()">Test</button>
+          <div style="margin-left:auto;display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-dim)">
+            Priority
+            <input type="number" id="peerflixPriority" min="1" max="6" value="3" style="width:40px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:11px;text-align:center">
+          </div>
+        </div>
+        <div class="test-result" id="peerflixTestResult"></div>
+      </div>
+    </div>
     <!-- Torrentio -->
     <div class="card">
       <div class="card-header">
@@ -941,6 +990,7 @@ function collectConfig() {
     p: parseInt(document.getElementById('prowlarrPriority').value) || 3,
     t: parseInt(document.getElementById('torrentioPriority').value) || 3,
     o: parseInt(document.getElementById('cometPriority').value) || 3,
+    e: parseInt(document.getElementById('peerflixPriority').value) || 3,
     a: parseInt(document.getElementById('jacredPriority').value) || 3,
     f: parseInt(document.getElementById('mediafusionPriority').value) || 3,
   };
@@ -956,6 +1006,8 @@ function collectConfig() {
     torrentioEnabled: document.getElementById('torrentioToggle').classList.contains('active'),
     cometUrl: document.getElementById('cometUrl').value,
     cometEnabled: document.getElementById('cometToggle').classList.contains('active'),
+    peerflixUrl: document.getElementById('peerflixUrl').value,
+    peerflixEnabled: document.getElementById('peerflixToggle').classList.contains('active'),
     jacredUrl: document.getElementById('jacredUrl').value,
     jacredApiKey: document.getElementById('jacredApiKey').value,
     jacredEnabled: document.getElementById('jacredToggle').classList.contains('active'),
@@ -976,9 +1028,10 @@ async function generateUrl() {
   const hasProwlarr = cfg.prowlarrEnabled && cfg.prowlarrUrl && cfg.prowlarrApiKey;
   const hasTorrentio = cfg.torrentioEnabled && cfg.torrentioUrl;
   const hasComet = cfg.cometEnabled && cfg.cometUrl;
-  const hasJacred = cfg.jacredEnabled && cfg.jacredUrl && cfg.jacredApiKey;
+  const hasPeerflix = cfg.peerflixEnabled && cfg.peerflixUrl;
+  const hasJacred = cfg.jacredEnabled && cfg.jacredUrl;
   const hasMediaFusion = cfg.mediafusionEnabled && cfg.mediafusionUrl;
-  if (!hasJackett && !hasProwlarr && !hasTorrentio && !hasComet && !hasJacred && !hasMediaFusion) {
+  if (!hasJackett && !hasProwlarr && !hasTorrentio && !hasComet && !hasPeerflix && !hasJacred && !hasMediaFusion) {
     showToast('Enable at least 1 provider');
     return;
   }
@@ -1064,6 +1117,20 @@ async function testTorrentio() {
     document.getElementById('torrentioBadge').className = 'badge ' + (d.ok ? 'success' : 'error');
   } catch (e) { el.className = 'test-result show error'; el.textContent = e.message; }
 }
+async function testPeerflix() {
+  const url = document.getElementById('peerflixUrl').value;
+  const el = document.getElementById('peerflixTestResult');
+  if (!url) { el.className = 'test-result show error'; el.textContent = 'Enter URL'; return; }
+  try {
+    el.className = 'test-result'; el.textContent = 'Testing...';
+    const r = await fetch('/api/test/peerflix?url=' + encodeURIComponent(url));
+    const d = await r.json();
+    el.className = 'test-result show ' + (d.ok ? 'success' : 'error');
+    el.textContent = d.ok ? d.message : d.message;
+    document.getElementById('peerflixBadge').textContent = d.ok ? 'OK' : 'Error';
+    document.getElementById('peerflixBadge').className = 'badge ' + (d.ok ? 'success' : 'error');
+  } catch (e) { el.className = 'test-result show error'; el.textContent = e.message; }
+}
 async function testJacred() {
   const url = document.getElementById('jacredUrl').value;
   const key = document.getElementById('jacredApiKey').value;
@@ -1108,17 +1175,17 @@ async function testMediafusion() {
     saveToDb: c.saveToDb || false,
     maxResults: c.maxResults || 5,
     jackettPriority: 3, prowlarrPriority: 3, torrentioPriority: 3,
-    cometPriority: 3, jacredPriority: 3, mediafusionPriority: 3,
+    cometPriority: 3, peerflixPriority: 3, jacredPriority: 3, mediafusionPriority: 3,
   };
   // Apply providerOrder to priority fields
   if (Array.isArray(c.providerOrder)) {
-    const map = { j: 'jackettPriority', p: 'prowlarrPriority', t: 'torrentioPriority', o: 'cometPriority', a: 'jacredPriority', f: 'mediafusionPriority' };
+    const map = { j: 'jackettPriority', p: 'prowlarrPriority', t: 'torrentioPriority', o: 'cometPriority', e: 'peerflixPriority', a: 'jacredPriority', f: 'mediafusionPriority' };
     c.providerOrder.forEach((code, idx) => { if (map[code]) fields[map[code]] = idx + 1; });
   }
   const toggleMap = {
     jackettUrl: 'jackettToggle', prowlarrUrl: 'prowlarrToggle',
     torrentioUrl: 'torrentioToggle', cometUrl: 'cometToggle',
-    jacredUrl: 'jacredToggle', mediafusionUrl: 'mediafusionToggle',
+    peerflixUrl: 'peerflixToggle', jacredUrl: 'jacredToggle', mediafusionUrl: 'mediafusionToggle',
   };
   for (const [id, val] of Object.entries(fields)) {
     const el = document.getElementById(id);
@@ -1177,6 +1244,7 @@ function configFromQuery(q) {
     torrentioUrl: q.torrentioUrl || '',
     torrentioConfig: q.torrentioConfig || '',
     cometUrl: q.cometUrl || '',
+    peerflixUrl: q.peerflixUrl || '',
     jacredUrl: q.jacredUrl || '',
     jacredApiKey: q.jacredApiKey || '',
     mediafusionUrl: q.mediafusionUrl || '',
@@ -1261,6 +1329,7 @@ app.post('/api/generate', (req, res) => {
     torrentioUrl: body.torrentioEnabled ? (body.torrentioUrl || '') : '',
     torrentioEnabled: !!body.torrentioEnabled,
     cometUrl: body.cometEnabled ? (body.cometUrl || '') : '',
+    peerflixUrl: body.peerflixEnabled ? (body.peerflixUrl || '') : '',
     jacredUrl: body.jacredEnabled ? (body.jacredUrl || '') : '',
     jacredApiKey: body.jacredEnabled ? (body.jacredApiKey || '') : '',
     mediafusionUrl: body.mediafusionEnabled ? (body.mediafusionUrl || '') : '',
@@ -1379,10 +1448,26 @@ app.get('/api/test/mediafusion', async (req, res) => {
   }
 });
 
+// ---- API: Test Peerflix ----
+app.get('/api/test/peerflix', async (req, res) => {
+  try {
+    const { url } = req.query;
+    const r = await fetch(`${stripManifestPath(url)}/stream/movie/tt0133093.json`, {
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!r.ok) { res.json({ ok: false, message: `HTTP ${r.status}` }); return; }
+    const data = await r.json();
+    const count = (data.streams || []).length;
+    res.json({ ok: true, message: `✅ Peerflix OK — ${count} streams for The Matrix` });
+  } catch (e) {
+    res.json({ ok: false, message: e.message });
+  }
+});
+
 // ---- Torrentio-style routes (no UUID, just config) ----
 app.get('/:config/manifest.json', (req, res) => {
   const config = decodeConfig(req.params.config);
-  const hasConfig = !!(config.jackettUrl || config.prowlarrUrl || config.torrentioUrl || config.cometUrl || config.jacredUrl || config.mediafusionUrl);
+  const hasConfig = !!(config.jackettUrl || config.prowlarrUrl || config.torrentioUrl || config.cometUrl || config.peerflixUrl || config.jacredUrl || config.mediafusionUrl);
   res.json(getManifest(!hasConfig));
 });
 app.get('/:config/stream/:type/:id.json', async (req, res) => {
@@ -1406,7 +1491,7 @@ function getManifest(configRequired) {
 
 app.get('/stremio/:uuid/:config/manifest.json', (req, res) => {
   const config = decodeConfig(req.params.config);
-  const hasConfig = !!(config.jackettUrl || config.prowlarrUrl || config.torrentioUrl || config.cometUrl || config.jacredUrl || config.mediafusionUrl);
+  const hasConfig = !!(config.jackettUrl || config.prowlarrUrl || config.torrentioUrl || config.cometUrl || config.peerflixUrl || config.jacredUrl || config.mediafusionUrl);
   res.json(getManifest(!hasConfig));
 });
 
