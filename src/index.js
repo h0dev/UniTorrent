@@ -544,13 +544,14 @@ async function handleStream(config, type, id) {
       return { streams: [] };
     }
 
-    // Global timeout: return partial results after 14s max
-    const GLOBAL_TIMEOUT = 14000;
     const results = [];
-    const settled = await Promise.race([
-      Promise.allSettled(promises.map(p => p.then(r => results.push(...r)).catch(e => err(`  ✗ Provider error: ${e.message?.slice(0,60)}`)))),
-      new Promise(resolve => setTimeout(() => { log(`  Global timeout (${GLOBAL_TIMEOUT}ms) — partial results: ${results.length}`); resolve('partial'); }, GLOBAL_TIMEOUT)),
-    ]);
+    const settled = await Promise.allSettled(promises);
+    for (const r of settled) {
+      if (r.status === 'fulfilled') {
+        results.push(...r.value);
+        log(`  ✓ ${r.value.length || 0} results from a provider`);
+      } else {
+        err(`  ✗ Provider error: ${r.reason?.message?.slice(0,60) || r.reason}`);
       }
     }
 
