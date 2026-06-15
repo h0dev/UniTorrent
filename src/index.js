@@ -60,7 +60,7 @@ const MANIFEST = {
   id: 'com.unitorrent.addon',
   version: '2.0.0',
   name: 'UniTorrent',
-  description: 'Multi-provider: Jackett + Prowlarr + Torrentio + Comet + Jacred + MediaFusion → TorrServer',
+  description: 'Multi-provider: Jackett + Prowlarr + Torrentio + Comet + Peerflix + Jacred + MediaFusion + Custom → TorrServer',
   resources: ['stream'],
   types: ['movie', 'series'],
   idPrefixes: ['tt'],
@@ -556,16 +556,55 @@ async function searchCustomProxy(cfg, type, id) {
   return results;
 }
 
-// ---- Jacred (Jackett-compatible, API key optional) ----
+// ---- Jacred (Jackett-compatible + REST API) ----
+// Tries REST API (/api/v1.0/torrents) first when no API key (jacred-go format).
+// Falls back to Torznab (/api/v2.0/...) when API key is set or REST fails.
 async function searchJacred(cfg, type, imdbId) {
   if (!cfg.jacredUrl) return [];
-  const params = new URLSearchParams({ t: 'search', cat: '', q: imdbId, extended: '1' });
-  if (cfg.jacredApiKey) params.set('apikey', cfg.jacredApiKey);
-  const url = `${cfg.jacredUrl.replace(/\/+$/, '')}/api/v2.0/indexers/all/results/torznab/api?${params}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(12000) });
-  if (!res.ok) throw new Error(`Jacred HTTP ${res.status}`);
-  const parsed = torznabParser.parse(await res.text());
-  const results = parseTorznabItems(parsed?.rss?.channel?.item, 'Jacred').sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
+  const base = cfg.jacredUrl.replace(/\/+$/, '');
+  let results = null;
+
+  // Try REST API first (no API key needed, bypasses Cloudflare)
+  if (!cfg.jacredApiKey) {
+    try {
+      const restUrl = `${base}/api/v1.0/torrents?search=${encodeURIComponent(imdbId)}`;
+      const restRes = await fetch(restUrl, { signal: AbortSignal.timeout(10000) });
+      if (restRes.ok) {
+        const data = await restRes.json();
+        if (Array.isArray(data) && data.length > 0) {
+          results = data.map(r => ({
+            Title: r.title || '',
+            Seeders: r.sid || 0,
+            Size: r.size || 0,
+            InfoHash: (r.magnet || '').match(/btih:([a-f0-9]+)/i)?.[1]?.toLowerCase() || '',
+            MagnetUri: r.magnet || '',
+            CategoryDesc: '',
+            _provider: 'Jacred',
+            _trackerName: r.tracker || '',
+          }));
+          log(`  Jacred REST: ${results.length} results`);
+        }
+      }
+    } catch (e) { /* REST failed, fall through to Torznab */ }
+  }
+
+  // Fallback to Torznab (Jackett format) if REST returned nothing
+  if (!results) {
+    try {
+      const params = new URLSearchParams({ t: 'search', cat: '', q: imdbId, extended: '1' });
+      if (cfg.jacredApiKey) params.set('apikey', cfg.jacredApiKey);
+      const torUrl = `${base}/api/v2.0/indexers/all/results/torznab/api?${params}`;
+      const torRes = await fetch(torUrl, { signal: AbortSignal.timeout(12000) });
+      if (torRes.ok) {
+        const parsed = torznabParser.parse(await torRes.text());
+        const items = parseTorznabItems(parsed?.rss?.channel?.item, 'Jacred');
+        if (items.length > 0) results = items;
+      }
+    } catch (e) { err(`  Jacred Torznab failed: ${e.message?.slice(0,60)}`); }
+  }
+
+  if (!results) return [];
+  results.sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
   await Promise.race([
     Promise.allSettled(results.slice(0, 10).map(r => resolveProxyToMagnet(r))),
     new Promise(r => setTimeout(r, 8000)),
@@ -747,7 +786,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 <body>
 <div class="header">
   <h1>UniTorrent</h1>
-  <p>Jackett + Prowlarr + Torrentio + Comet + Jacred + MediaFusion → TorrServer</p>
+  <p>Jackett + Prowlarr + Torrentio + Comet + Peerflix + Jacred + MediaFusion + Custom → TorrServer</p>
 </div>
 
 <div class="tab-content">
@@ -892,8 +931,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
           <input type="url" id="jacredUrl" placeholder="http://192.168.1.100:9120">
         </div>
         <div class="form-group">
-          <label>API Key</label>
-          <input type="text" id="jacredApiKey" placeholder="API Key from config">
+          <label>API Key <span style="color:var(--text-dim);font-weight:400">(optional — REST API used if empty)</span></label>
+          <input type="text" id="jacredApiKey" placeholder="Leave empty if REST API is available">
         </div>
         <div style="display:flex;gap:8px;align-items:center">
           <button class="btn btn-secondary btn-sm" onclick="testJacred()">Test</button>
@@ -1198,7 +1237,7 @@ async function testJacred() {
   const url = document.getElementById('jacredUrl').value;
   const key = document.getElementById('jacredApiKey').value;
   const el = document.getElementById('jacredTestResult');
-  if (!url || !key) { el.className = 'test-result show error'; el.textContent = 'Enter URL and API Key'; return; }
+  if (!url) { el.className = 'test-result show error'; el.textContent = 'Enter URL'; return; }
   try {
     el.className = 'test-result'; el.textContent = 'Testing...';
     const r = await fetch('/api/test/jacred?url=' + encodeURIComponent(url) + '&key=' + encodeURIComponent(key));
@@ -1504,8 +1543,20 @@ app.get('/api/test/torrentio', async (req, res) => {
 app.get('/api/test/jacred', async (req, res) => {
   try {
     const { url, key } = req.query;
-    if (!url || !key) { res.json({ ok: false, message: 'Missing URL or API Key' }); return; }
-    const r = await fetch(`${url.replace(/\/$/, '')}/api/v2.0/indexers/all/results?apikey=${encodeURIComponent(key)}&query=tt0133093`, {
+    if (!url) { res.json({ ok: false, message: 'Missing URL' }); return; }
+    const base = url.replace(/\/+$/, '');
+    // Try REST API first (no API key needed)
+    if (!key) {
+      const rr = await fetch(`${base}/api/v1.0/torrents?search=tt0133093`, { signal: AbortSignal.timeout(10000) });
+      if (rr.ok) {
+        const data = await rr.json();
+        const count = Array.isArray(data) ? data.length : 0;
+        res.json({ ok: true, message: `✅ Jacred REST OK — ${count} results for The Matrix` });
+        return;
+      }
+    }
+    // Fallback to Torznab
+    const r = await fetch(`${base}/api/v2.0/indexers/all/results?apikey=${encodeURIComponent(key || '')}&query=tt0133093`, {
       signal: AbortSignal.timeout(15000),
     });
     if (!r.ok) { res.json({ ok: false, message: `HTTP ${r.status}` }); return; }
