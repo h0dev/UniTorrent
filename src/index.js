@@ -35,7 +35,6 @@ function streamCacheKey(type, id, cfg) {
     cfg.jacredUrl, cfg.jacredApiKey,
     cfg.peerflixUrl,
     cfg.mediafusionUrl,
-    cfg.customUrls?.join(','),
     cfg.torrServerUrl, cfg.torrServerUser, cfg.torrServerPassword, cfg.torrServerType,
     cfg.maxResults, cfg.providerOrder?.join(','),
     cfg.saveToDb,
@@ -60,7 +59,7 @@ const MANIFEST = {
   id: 'com.unitorrent.addon',
   version: '2.0.0',
   name: 'UniTorrent',
-  description: 'Multi-provider: Jackett + Prowlarr + Torrentio + Comet + Peerflix + Jacred + MediaFusion + Custom → TorrServer',
+  description: 'Multi-provider: Jackett + Prowlarr + Torrentio + Comet + Peerflix + Jacred + MediaFusion → TorrServer',
   resources: ['stream'],
   types: ['movie', 'series'],
   idPrefixes: ['tt'],
@@ -84,7 +83,6 @@ const MANIFEST = {
 //   e: { u: "peerflixUrl" },
 //   a: { u: "jacredUrl", k: "jacredApiKey" }, // k optional
 //   f: { u: "mediafusionUrl" },
-//   x: ["customUrl1", "customUrl2"],  // custom stream proxies
 //   s: { u: "torrServerUrl", a: "user:pass", t: "official|fork" },
 //   m: 5  // maxResults
 // }
@@ -97,7 +95,6 @@ function encodeConfig(config) {
   if (config.peerflixUrl) c.e = { u: config.peerflixUrl.replace(/\/$/, '') };
   if (config.jacredUrl) c.a = { u: config.jacredUrl.replace(/\/$/, ''), k: config.jacredApiKey || '' };
   if (config.mediafusionUrl) c.f = { u: config.mediafusionUrl.replace(/\/$/, '') };
-  if (config.customUrls?.length) c.x = config.customUrls.map(u => u.replace(/\/$/, ''));
   if (config.torrServerUrl) {
     c.s = { u: config.torrServerUrl.replace(/\/$/, '') };
     if (config.torrServerUser || config.torrServerPassword) {
@@ -135,7 +132,6 @@ function decodeConfig(b64) {
     if (d.e && d.e.u) { cfg.peerflixUrl = d.e.u; }
     if (d.a && d.a.u) { cfg.jacredUrl = d.a.u; cfg.jacredApiKey = d.a.k || ''; }
     if (d.f && d.f.u) { cfg.mediafusionUrl = d.f.u; }
-    if (Array.isArray(d.x)) { cfg.customUrls = d.x.filter(Boolean); }
     if (d.s) {
       if (typeof d.s === 'string') { cfg.torrServerUrl = d.s; }
       else {
@@ -441,7 +437,7 @@ function stripManifestPath(url) {
 
 // Provider name → config code for priority ordering
 function codeOf(provider) {
-  const map = { Jackett: 'j', Prowlarr: 'p', Torrentio: 't', Comet: 'o', Peerflix: 'e', Jacred: 'a', MediaFusion: 'f', Custom: 'x' };
+  const map = { Jackett: 'j', Prowlarr: 'p', Torrentio: 't', Comet: 'o', Peerflix: 'e', Jacred: 'a', MediaFusion: 'f' };
   return map[provider] || '';
 }
 
@@ -526,36 +522,6 @@ async function searchPeerflix(cfg, type, id) {
   }));
 }
 
-// ---- Custom stream proxies (any Comet-compatible URL) ----
-async function searchCustomProxy(cfg, type, id) {
-  if (!cfg.customUrls?.length) return [];
-  const results = [];
-  for (const rawUrl of cfg.customUrls) {
-    try {
-      const baseUrl = stripManifestPath(rawUrl);
-      const url = `${baseUrl}/stream/${type}/${id}.json`;
-      const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
-      if (!res.ok) { err(`  Custom proxy HTTP ${res.status}: ${rawUrl}`); continue; }
-      const data = await res.json();
-      for (const s of (data.streams || [])) {
-        if (s.infoHash || s.url) {
-          results.push({
-            Title: s.title || s.name || '',
-            Seeders: parseInt((s.name || '').match(/👤\s*(\d+)/)?.[1] || '0', 10),
-            Size: s.behaviorHints?.videoSize || 0,
-            InfoHash: s.infoHash || '',
-            MagnetUri: '',
-            CategoryDesc: '',
-            _provider: 'Custom',
-            _rawStream: s,
-          });
-        }
-      }
-    } catch (e) { err(`  Custom proxy error: ${e.message?.slice(0,60)} — ${rawUrl}`); }
-  }
-  return results;
-}
-
 // ---- Jacred (Jackett-compatible + REST API) ----
 // Tries REST API (/api/v1.0/torrents) first when no API key (jacred-go format).
 // Falls back to Torznab (/api/v2.0/...) when API key is set or REST fails.
@@ -636,7 +602,6 @@ async function handleStream(config, type, id) {
     if (config.peerflixUrl) { log(`  + Peerflix: ${config.peerflixUrl}`); promises.push(searchPeerflix(config, type, id)); }
     if (config.jacredUrl) { log(`  + Jacred: ${config.jacredUrl}`); promises.push(searchJacred(config, type, imdbId)); }
     if (config.mediafusionUrl) { log(`  + MediaFusion: ${config.mediafusionUrl}`); promises.push(searchMediaFusion(config, type, id)); }
-    if (config.customUrls?.length) { log(`  + Custom: ${config.customUrls.length} URLs`); promises.push(searchCustomProxy(config, type, id)); }
 
     if (promises.length === 0) {
       log(`  No providers configured → empty`);
@@ -679,7 +644,7 @@ async function handleStream(config, type, id) {
     });
 
     // Sort by provider priority, then seeders
-    const order = config.providerOrder || ['j','p','t','o','e','a','f','x'];
+    const order = config.providerOrder || ['j','p','t','o','e','a','f'];
     const orderIdx = { j: 0, p: 1, t: 2, o: 3, a: 4, f: 5 };
     unique.sort((a, b) => {
       const pa = order.indexOf(codeOf(a._provider));
@@ -698,7 +663,7 @@ async function handleStream(config, type, id) {
         return s;
       }
       // Proxy-style providers (Torrentio, Comet, MediaFusion) — pass through raw stream format
-      if ((r._provider === 'Torrentio' || r._provider === 'Comet' || r._provider === 'Peerflix' || r._provider === 'MediaFusion' || r._provider === 'Custom') && r._rawStream) {
+      if ((r._provider === 'Torrentio' || r._provider === 'Comet' || r._provider === 'Peerflix' || r._provider === 'MediaFusion') && r._rawStream) {
         const s = { ...r._rawStream };
         s.name = `[${r._provider}] ${s.name || ''}`;
         log(`  → Proxy pass: ${r._provider} infoHash=${s.infoHash?.slice(0, 12)}...`);
@@ -786,7 +751,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 <body>
 <div class="header">
   <h1>UniTorrent</h1>
-  <p>Jackett + Prowlarr + Torrentio + Comet + Peerflix + Jacred + MediaFusion + Custom → TorrServer</p>
+  <p>Jackett + Prowlarr + Torrentio + Comet + Peerflix + Jacred + MediaFusion → TorrServer</p>
 </div>
 
 <div class="tab-content">
@@ -971,30 +936,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
         <div class="test-result" id="mediafusionTestResult"></div>
       </div>
     </div>
-    <!-- Custom Providers (multi-URL) -->
-    <div class="card">
-      <div class="card-header">
-        Custom Proxies <span class="badge" id="customBadge">Off</span>
-      </div>
-      <div class="provider-card">
-        <div class="provider-header">
-          <span class="provider-name">Custom Stream URLs</span>
-          <label class="toggle" id="customToggle"></label>
-        </div>
-        <div class="form-group">
-          <label>One URL per line (Torrentio/Comet-compatible)</label>
-          <textarea id="customUrls" rows="4" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:rgba(0,0,0,.2);color:var(--text);font-size:13px;outline:none;resize:vertical;font-family:monospace" placeholder="https://torrentio.strem.fun/manifest.json&#10;https://jacred.stream/manifest.json&#10;https://jr.maxvol.pro/manifest.json&#10;https://str.zmb.lat/manifest.json&#10;https://magnetz.eu/manifest.json"></textarea>
-        </div>
-        <div style="display:flex;gap:8px;align-items:center">
-          <button class="btn btn-secondary btn-sm" onclick="testCustom()">Test All</button>
-          <div style="margin-left:auto;display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-dim)">
-            Priority
-            <input type="number" id="customPriority" min="1" max="6" value="3" style="width:40px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:11px;text-align:center">
-          </div>
-        </div>
-        <div class="test-result" id="customTestResult"></div>
-      </div>
-    </div>
   </div> <!-- /provider tab -->
 
   <div class="tab-pane" id="tab-server">
@@ -1094,7 +1035,6 @@ function collectConfig() {
     e: parseInt(document.getElementById('peerflixPriority').value) || 3,
     a: parseInt(document.getElementById('jacredPriority').value) || 3,
     f: parseInt(document.getElementById('mediafusionPriority').value) || 3,
-    x: parseInt(document.getElementById('customPriority').value) || 3,
   };
   const providerOrder = Object.entries(priorities).sort((a, b) => a[1] - b[1]).map(e => e[0]);
   return {
@@ -1115,8 +1055,6 @@ function collectConfig() {
     jacredEnabled: document.getElementById('jacredToggle').classList.contains('active'),
     mediafusionUrl: document.getElementById('mediafusionUrl').value,
     mediafusionEnabled: document.getElementById('mediafusionToggle').classList.contains('active'),
-    customUrls: document.getElementById('customUrls').value,
-    customEnabled: document.getElementById('customToggle').classList.contains('active'),
     torrServerUrl: document.getElementById('torrServerUrl').value,
     torrServerUser: document.getElementById('torrServerUser').value,
     torrServerPassword: document.getElementById('torrServerPassword').value,
@@ -1133,10 +1071,9 @@ async function generateUrl() {
   const hasTorrentio = cfg.torrentioEnabled && cfg.torrentioUrl;
   const hasComet = cfg.cometEnabled && cfg.cometUrl;
   const hasPeerflix = cfg.peerflixEnabled && cfg.peerflixUrl;
-  const hasCustom = cfg.customEnabled && cfg.customUrls?.trim();
   const hasJacred = cfg.jacredEnabled && cfg.jacredUrl;
   const hasMediaFusion = cfg.mediafusionEnabled && cfg.mediafusionUrl;
-  if (!hasJackett && !hasProwlarr && !hasTorrentio && !hasComet && !hasPeerflix && !hasCustom && !hasJacred && !hasMediaFusion) {
+  if (!hasJackett && !hasProwlarr && !hasTorrentio && !hasComet && !hasPeerflix && !hasJacred && !hasMediaFusion) {
     showToast('Enable at least 1 provider');
     return;
   }
@@ -1265,25 +1202,6 @@ async function testMediafusion() {
     document.getElementById('mediafusionBadge').className = 'badge ' + (d.ok ? 'success' : 'error');
   } catch (e) { el.className = 'test-result show error'; el.textContent = e.message; }
 }
-async function testCustom() {
-  const raw = document.getElementById('customUrls').value;
-  const el = document.getElementById('customTestResult');
-  const urls = raw.split('\n').map(u => u.trim()).filter(Boolean);
-  if (!urls.length) { el.className = 'test-result show error'; el.textContent = 'Enter at least 1 URL'; return; }
-  el.className = 'test-result'; el.textContent = 'Testing ' + urls.length + ' URLs...';
-  let ok = 0, fail = 0;
-  for (const url of urls) {
-    try {
-      const r = await fetch('/api/test/comet?url=' + encodeURIComponent(url));
-      const d = await r.json();
-      if (d.ok) ok++; else fail++;
-    } catch { fail++; }
-  }
-  el.className = 'test-result show ' + (fail === 0 ? 'success' : ok > 0 ? 'success' : 'error');
-  el.textContent = ok + '/' + urls.length + ' OK, ' + fail + ' failed';
-  document.getElementById('customBadge').textContent = fail === 0 ? 'OK' : ok > 0 ? 'Partial' : 'Error';
-  document.getElementById('customBadge').className = 'badge ' + (fail === 0 ? 'success' : ok > 0 ? 'success' : 'error');
-}
 (function() {
   if (!window.__CONFIG__) return;
   const c = window.__CONFIG__;
@@ -1299,19 +1217,17 @@ async function testCustom() {
     saveToDb: c.saveToDb || false,
     maxResults: c.maxResults || 5,
     jackettPriority: 3, prowlarrPriority: 3, torrentioPriority: 3,
-    cometPriority: 3, peerflixPriority: 3, jacredPriority: 3, mediafusionPriority: 3, customPriority: 3,
-    customUrls: '',
+    cometPriority: 3, peerflixPriority: 3, jacredPriority: 3, mediafusionPriority: 3,
   };
   // Apply providerOrder to priority fields
   if (Array.isArray(c.providerOrder)) {
-    const map = { j: 'jackettPriority', p: 'prowlarrPriority', t: 'torrentioPriority', o: 'cometPriority', e: 'peerflixPriority', a: 'jacredPriority', f: 'mediafusionPriority', x: 'customPriority' };
+    const map = { j: 'jackettPriority', p: 'prowlarrPriority', t: 'torrentioPriority', o: 'cometPriority', e: 'peerflixPriority', a: 'jacredPriority', f: 'mediafusionPriority' };
     c.providerOrder.forEach((code, idx) => { if (map[code]) fields[map[code]] = idx + 1; });
   }
   const toggleMap = {
     jackettUrl: 'jackettToggle', prowlarrUrl: 'prowlarrToggle',
     torrentioUrl: 'torrentioToggle', cometUrl: 'cometToggle',
     peerflixUrl: 'peerflixToggle', jacredUrl: 'jacredToggle', mediafusionUrl: 'mediafusionToggle',
-    customUrls: 'customToggle',
   };
   for (const [id, val] of Object.entries(fields)) {
     const el = document.getElementById(id);
@@ -1381,7 +1297,6 @@ function configFromQuery(q) {
     saveToDb: q.saveToDb === 'true' || q.saveToDb === '1',
     providerOrder: q.providerOrder ? q.providerOrder.split(',') : undefined,
     maxResults: parseInt(q.maxResults || '5', 10) || 5,
-    customUrls: q.customUrls ? q.customUrls.split(',').filter(Boolean) : [],
   };
 }
 
@@ -1460,7 +1375,6 @@ app.post('/api/generate', (req, res) => {
     jacredUrl: body.jacredEnabled ? (body.jacredUrl || '') : '',
     jacredApiKey: body.jacredEnabled ? (body.jacredApiKey || '') : '',
     mediafusionUrl: body.mediafusionEnabled ? (body.mediafusionUrl || '') : '',
-    customUrls: body.customEnabled ? (body.customUrls || '').split('\n').map(u => u.trim()).filter(Boolean) : [],
     torrServerUrl: body.torrServerUrl || '',
     torrServerUser: body.torrServerUser || '',
     torrServerPassword: body.torrServerPassword || '',
@@ -1607,7 +1521,7 @@ app.get('/api/test/peerflix', async (req, res) => {
 // ---- Torrentio-style routes (no UUID, just config) ----
 app.get('/:config/manifest.json', (req, res) => {
   const config = decodeConfig(req.params.config);
-  const hasConfig = !!(config.jackettUrl || config.prowlarrUrl || config.torrentioUrl || config.cometUrl || config.peerflixUrl || config.jacredUrl || config.mediafusionUrl || config.customUrls?.length);
+  const hasConfig = !!(config.jackettUrl || config.prowlarrUrl || config.torrentioUrl || config.cometUrl || config.peerflixUrl || config.jacredUrl || config.mediafusionUrl);
   res.json(getManifest(!hasConfig));
 });
 app.get('/:config/stream/:type/:id.json', async (req, res) => {
@@ -1631,7 +1545,7 @@ function getManifest(configRequired) {
 
 app.get('/stremio/:uuid/:config/manifest.json', (req, res) => {
   const config = decodeConfig(req.params.config);
-  const hasConfig = !!(config.jackettUrl || config.prowlarrUrl || config.torrentioUrl || config.cometUrl || config.peerflixUrl || config.jacredUrl || config.mediafusionUrl || config.customUrls?.length);
+  const hasConfig = !!(config.jackettUrl || config.prowlarrUrl || config.torrentioUrl || config.cometUrl || config.peerflixUrl || config.jacredUrl || config.mediafusionUrl);
   res.json(getManifest(!hasConfig));
 });
 
