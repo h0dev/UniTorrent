@@ -351,7 +351,7 @@ function parseTorrentFile(buf) {
 async function resolveProxyToMagnet(r) {
   if (!r.MagnetUri || r.MagnetUri.startsWith('magnet:') || r.InfoHash) return;
   try {
-    const resp = await fetch(r.MagnetUri, { signal: AbortSignal.timeout(20000), redirect: 'manual' });
+    const resp = await fetch(r.MagnetUri, { signal: AbortSignal.timeout(8000), redirect: 'manual' });
     log(`resolve ${r._provider} ${r.Title?.slice(0,30)}: HTTP ${resp.status} ct=${resp.headers.get('content-type')?.slice(0,20)}`);
     if ((resp.status === 302 || resp.status === 301) && resp.headers.get('location')?.startsWith('magnet:')) {
       const loc = resp.headers.get('location');
@@ -381,14 +381,14 @@ async function searchJackett(cfg, type, imdbId) {
   if (!cfg.jackettUrl || !cfg.jackettApiKey) return [];
   const params = new URLSearchParams({ apikey: cfg.jackettApiKey, t: 'search', cat: '', q: imdbId, extended: '1' });
   const url = `${cfg.jackettUrl.replace(/\/+$/, '')}/api/v2.0/indexers/all/results/torznab/api?${params}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
+  const res = await fetch(url, { signal: AbortSignal.timeout(12000) });
   if (!res.ok) throw new Error(`Jackett HTTP ${res.status}`);
   const parsed = torznabParser.parse(await res.text());
   const results = parseTorznabItems(parsed?.rss?.channel?.item, 'Jackett').sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
-  // Live check: resolve proxy → magnet for top 10 (max 12s total)
+  // Live check: resolve proxy → magnet for top 10 (max 8s total)
   await Promise.race([
     Promise.allSettled(results.slice(0, 10).map(r => resolveProxyToMagnet(r))),
-    new Promise(r => setTimeout(r, 12000)),
+    new Promise(r => setTimeout(r, 8000)),
   ]);
   return results;
 }
@@ -405,7 +405,7 @@ async function searchProwlarr(cfg, imdbId, type) {
   });
   const url = `${cfg.prowlarrUrl}/api/v1/search?${params}`;
   const res = await fetch(url, {
-    signal: AbortSignal.timeout(20000),
+    signal: AbortSignal.timeout(12000),
     headers: { 'X-Api-Key': cfg.prowlarrApiKey, Accept: 'application/json' },
   });
   if (!res.ok) throw new Error(`Prowlarr HTTP ${res.status}`);
@@ -445,7 +445,7 @@ async function searchTorrentio(cfg, type, id) {
   const url = configPart
     ? `${baseUrl}/${configPart}/stream/${type}/${id}.json`
     : `${baseUrl}/stream/${type}/${id}.json`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+  const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
   if (!res.ok) throw new Error(`Torrentio HTTP ${res.status}`);
   const data = await res.json();
   return (data.streams || []).filter(s => s.infoHash).map(s => ({
@@ -464,7 +464,7 @@ async function searchTorrentio(cfg, type, id) {
 async function searchComet(cfg, type, id) {
   if (!cfg.cometUrl) return [];
   const url = `${stripManifestPath(cfg.cometUrl)}/stream/${type}/${id}.json`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+  const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
   if (!res.ok) throw new Error(`Comet HTTP ${res.status}`);
   const data = await res.json();
   return (data.streams || []).filter(s => s.infoHash || s.url).map(s => ({
@@ -484,7 +484,7 @@ async function searchComet(cfg, type, id) {
 async function searchMediaFusion(cfg, type, id) {
   if (!cfg.mediafusionUrl) return [];
   const url = `${stripManifestPath(cfg.mediafusionUrl)}/D-/stream/${type}/${id}.json`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+  const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
   if (!res.ok) throw new Error(`MediaFusion HTTP ${res.status}`);
   const data = await res.json();
   return (data.streams || []).filter(s => s.infoHash || s.url).map(s => ({
@@ -504,13 +504,13 @@ async function searchJacred(cfg, type, imdbId) {
   if (!cfg.jacredUrl || !cfg.jacredApiKey) return [];
   const params = new URLSearchParams({ apikey: cfg.jacredApiKey, t: 'search', cat: '', q: imdbId, extended: '1' });
   const url = `${cfg.jacredUrl.replace(/\/+$/, '')}/api/v2.0/indexers/all/results/torznab/api?${params}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
+  const res = await fetch(url, { signal: AbortSignal.timeout(12000) });
   if (!res.ok) throw new Error(`Jacred HTTP ${res.status}`);
   const parsed = torznabParser.parse(await res.text());
   const results = parseTorznabItems(parsed?.rss?.channel?.item, 'Jacred').sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
   await Promise.race([
     Promise.allSettled(results.slice(0, 10).map(r => resolveProxyToMagnet(r))),
-    new Promise(r => setTimeout(r, 12000)),
+    new Promise(r => setTimeout(r, 8000)),
   ]);
   return results;
 }
@@ -544,14 +544,13 @@ async function handleStream(config, type, id) {
       return { streams: [] };
     }
 
-    const settled = await Promise.allSettled(promises);
+    // Global timeout: return partial results after 14s max
+    const GLOBAL_TIMEOUT = 14000;
     const results = [];
-    for (const r of settled) {
-      if (r.status === 'fulfilled') {
-        results.push(...r.value);
-        log(`  ✓ ${r.value.length || 0} results from a provider`);
-      } else {
-        err(`  ✗ Provider error: ${r.reason?.message || r.reason}`);
+    const settled = await Promise.race([
+      Promise.allSettled(promises.map(p => p.then(r => results.push(...r)).catch(e => err(`  ✗ Provider error: ${e.message?.slice(0,60)}`)))),
+      new Promise(resolve => setTimeout(() => { log(`  Global timeout (${GLOBAL_TIMEOUT}ms) — partial results: ${results.length}`); resolve('partial'); }, GLOBAL_TIMEOUT)),
+    ]);
       }
     }
 
@@ -560,13 +559,13 @@ async function handleStream(config, type, id) {
       return { streams: [] };
     }
 
-    // Live check: try to resolve any remaining results without infoHash (max 8s)
+    // Live check: try to resolve any remaining results without infoHash (max 5s)
     const needCheck = results.filter(r => !r.InfoHash && r.MagnetUri && !r.MagnetUri.startsWith('magnet:')).slice(0, 5);
     if (needCheck.length > 0) {
       log(`  Live check: ${needCheck.length} unverified results`);
       await Promise.race([
         Promise.allSettled(needCheck.map(r => resolveProxyToMagnet(r))),
-        new Promise(r => setTimeout(r, 8000)),
+        new Promise(r => setTimeout(r, 5000)),
       ]);
     }
 
@@ -630,51 +629,57 @@ const WEB_HTML = `<!DOCTYPE html>
 <title>UniTorrent - Multi-Provider Stremio Addon</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-:root{--bg:#0a0a0f;--bg-card:#14141e;--border:#1e1e30;--text:#e0e0e8;--text-dim:#8888a0;--primary:#7c3aed;--primary-hover:#8b5cf6;--accent:#f59e0b;--success:#10b981;--error:#ef4444;--radius:10px}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column}
-.header{padding:16px 20px;text-align:center;border-bottom:1px solid var(--border)}
-.header h1{font-size:20px;font-weight:700}
-.header p{font-size:13px;color:var(--text-dim);margin-top:2px}
-.tab-content{flex:1;overflow-y:auto;padding:12px}
-.tab-content .tab-pane{display:none}
+:root{--bg:#080810;--bg-card:#12121e;--border:#1e1e35;--text:#e8e8f0;--text-dim:#7878a0;--primary:#7c3aed;--primary-hover:#8b5cf6;--accent:#f59e0b;--success:#10b981;--error:#ef4444;--radius:14px}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column;background-image:radial-gradient(ellipse at 20% 50%,rgba(124,58,237,.06) 0%,transparent 60%),radial-gradient(ellipse at 80% 20%,rgba(245,158,11,.04) 0%,transparent 50%)}
+.header{padding:20px;text-align:center;border-bottom:1px solid var(--border);position:relative}
+.header::after{content:'';position:absolute;bottom:-1px;left:10%;right:10%;height:1px;background:linear-gradient(90deg,transparent,var(--primary),transparent)}
+.header h1{font-size:22px;font-weight:800;background:linear-gradient(135deg,#c084fc,#f59e0b);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.header p{font-size:13px;color:var(--text-dim);margin-top:4px}
+.tab-content{flex:1;overflow-y:auto;padding:14px}
+.tab-content .tab-pane{display:none;animation:fadeIn .25s ease}
 .tab-content .tab-pane.active{display:block}
-.tab-bar{display:flex;border-top:1px solid var(--border);background:var(--bg-card);position:sticky;bottom:0}
-.tab-btn{flex:1;padding:12px;text-align:center;font-size:13px;font-weight:600;cursor:pointer;color:var(--text-dim);border:none;background:none;transition:all .15s}
-.tab-btn.active{color:var(--accent);background:rgba(245,158,11,.08)}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.tab-bar{display:flex;border-top:1px solid var(--border);background:var(--bg-card);position:sticky;bottom:0;backdrop-filter:blur(12px);background:rgba(18,18,30,.85)}
+.tab-btn{flex:1;padding:14px;text-align:center;font-size:13px;font-weight:600;cursor:pointer;color:var(--text-dim);border:none;background:none;transition:all .2s;position:relative}
+.tab-btn.active{color:var(--accent)}
+.tab-btn.active::after{content:'';position:absolute;top:0;left:20%;right:20%;height:2px;background:var(--accent);border-radius:0 0 4px 4px}
 .tab-btn:hover{color:var(--text)}
-.card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:10px;overflow:hidden}
-.card-header{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--border);font-size:14px;font-weight:600}
-.badge{font-size:11px;padding:2px 8px;border-radius:4px;background:var(--border);color:var(--text-dim)}
+.card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:12px;overflow:hidden;transition:border-color .2s,box-shadow .2s}
+.card:focus-within{border-color:var(--primary);box-shadow:0 0 0 1px rgba(124,58,237,.2)}
+.card-header{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border);font-size:14px;font-weight:700}
+.badge{font-size:10px;padding:3px 10px;border-radius:20px;background:var(--border);color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;font-weight:700}
 .badge.success{background:rgba(16,185,129,.15);color:var(--success)}
 .badge.error{background:rgba(239,68,68,.15);color:var(--error)}
-.provider-card{padding:10px 14px}
-.provider-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
-.provider-name{font-size:13px;font-weight:600}
-.toggle{width:40px;height:22px;border-radius:11px;background:var(--border);cursor:pointer;position:relative;transition:background .2s;flex-shrink:0}
-.toggle.active{background:var(--primary)}
-.toggle::after{content:'';position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;transition:transform .2s}
+.provider-card{padding:12px 16px}
+.provider-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.provider-name{font-size:14px;font-weight:700}
+.toggle{width:42px;height:24px;border-radius:12px;background:var(--border);cursor:pointer;position:relative;transition:background .25s;flex-shrink:0}
+.toggle.active{background:var(--primary);box-shadow:0 0 12px rgba(124,58,237,.3)}
+.toggle::after{content:'';position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:transform .25s cubic-bezier(.4,0,.2,1)}
 .toggle.active::after{transform:translateX(18px)}
-.form-group{margin-bottom:8px}
-.form-group label{display:block;font-size:12px;font-weight:600;margin-bottom:3px;color:var(--text-dim)}
-.form-group input,.form-group select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px;outline:none;transition:border-color .15s}
-.form-group input:focus,.form-group select:focus{border-color:var(--primary)}
-.form-group .hint{font-size:11px;color:var(--text-dim);margin-top:3px;word-break:break-all}
-.form-group .hint code{background:var(--bg-card);padding:1px 4px;border-radius:3px;font-size:10px}
-.btn{display:inline-flex;align-items:center;gap:4px;padding:7px 14px;border-radius:6px;border:none;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s}
-.btn-primary{background:var(--primary);color:#fff}
-.btn-primary:hover{background:var(--primary-hover)}
-.btn-success{background:var(--success);color:#fff}
+.form-group{margin-bottom:10px}
+.form-group label{display:block;font-size:12px;font-weight:600;margin-bottom:4px;color:var(--text-dim);letter-spacing:.3px}
+.form-group input,.form-group select{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:rgba(0,0,0,.2);color:var(--text);font-size:13px;outline:none;transition:border-color .2s,box-shadow .2s}
+.form-group input:focus,.form-group select:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(124,58,237,.15)}
+.form-group .hint{font-size:11px;color:var(--text-dim);margin-top:4px;word-break:break-all;line-height:1.4}
+.form-group .hint code{background:var(--bg-card);padding:2px 6px;border-radius:4px;font-size:10px;border:1px solid var(--border)}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:10px;border:none;font-size:12px;font-weight:700;cursor:pointer;transition:all .2s;letter-spacing:.3px}
+.btn-primary{background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;box-shadow:0 2px 12px rgba(124,58,237,.25)}
+.btn-primary:hover{background:linear-gradient(135deg,#8b5cf6,#7c3aed);transform:translateY(-1px);box-shadow:0 4px 16px rgba(124,58,237,.35)}
+.btn-success{background:linear-gradient(135deg,#10b981,#059669);color:#fff;box-shadow:0 2px 10px rgba(16,185,129,.25)}
+.btn-success:hover{transform:translateY(-1px);box-shadow:0 4px 14px rgba(16,185,129,.35)}
 .btn-secondary{background:var(--border);color:var(--text)}
-.btn-secondary:hover{background:#2a2a40}
-.btn-sm{padding:5px 10px;font-size:11px}
-.test-result{display:none;margin-top:6px;padding:6px 10px;border-radius:6px;font-size:12px}
+.btn-secondary:hover{background:#2a2a44;transform:translateY(-1px)}
+.btn-sm{padding:6px 12px;font-size:11px}
+.btn-lg{width:100%;justify-content:center;padding:14px;font-size:14px}
+.test-result{display:none;margin-top:8px;padding:8px 12px;border-radius:10px;font-size:12px}
 .test-result.show{display:block}
-.test-result.success{background:rgba(16,185,129,.1);color:var(--success)}
-.test-result.error{background:rgba(239,68,68,.1);color:var(--error)}
-.result-box{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-top:12px;word-break:break-all}
-.result-url{font-size:12px;color:var(--text-dim);margin-bottom:10px;word-break:break-all}
-.result-actions{display:flex;gap:8px;flex-wrap:wrap}
-.toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#1a1a28;color:var(--text);padding:10px 20px;border-radius:8px;font-size:13px;border:1px solid var(--border);opacity:0;transition:opacity .3s;pointer-events:none;z-index:100}
+.test-result.success{background:rgba(16,185,129,.1);color:var(--success);border:1px solid rgba(16,185,129,.2)}
+.test-result.error{background:rgba(239,68,68,.1);color:var(--error);border:1px solid rgba(239,68,68,.2)}
+.result-box{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-top:14px;word-break:break-all;border:1px solid var(--primary);box-shadow:0 0 20px rgba(124,58,237,.1)}
+.result-url{font-size:11px;color:var(--text-dim);margin-bottom:12px;word-break:break-all;font-family:monospace;background:rgba(0,0,0,.3);padding:8px 10px;border-radius:8px;line-height:1.5}
+.result-actions{display:flex;gap:10px;flex-wrap:wrap}
+.toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:rgba(18,18,30,.95);backdrop-filter:blur(12px);color:var(--text);padding:12px 24px;border-radius:12px;font-size:13px;border:1px solid var(--border);opacity:0;transition:opacity .3s;pointer-events:none;z-index:100;box-shadow:0 4px 24px rgba(0,0,0,.4)}
 .toast.show{opacity:1}
 </style>
 </head>
