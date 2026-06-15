@@ -1118,6 +1118,14 @@ app.use((req, res, next) => {
   next();
 });
 
+// Helper: public-facing URL — checks PUBLIC_URL env, X-Forwarded headers, then request host
+function getBaseUrl(req) {
+  if (process.env.PUBLIC_URL) return process.env.PUBLIC_URL.replace(/\/+$/, '');
+  const proto = req.headers['x-forwarded-proto'] || req.protocol;
+  const host = req.headers['x-forwarded-host'] || req.get('host');
+  return `${proto}://${host}`;
+}
+
 // ---- Helper: build config from Stremio query params (native config UI) ----
 function configFromQuery(q) {
   return {
@@ -1164,7 +1172,7 @@ app.get('/manifest.json', (req, res) => {
 // Stream search with config from query params (Stremio passes config values)
 app.get('/stream/:type/:id.json', async (req, res) => {
   const cfg = configFromQuery(req.query);
-  cfg._addonBase = `${req.protocol}://${req.get('host')}`;
+  cfg._addonBase = getBaseUrl(req);
   log(`Clean stream: ${req.params.type} ${req.params.id} from query config`);
   const result = await handleStream(cfg, req.params.type, req.params.id);
   res.json(result);
@@ -1224,7 +1232,7 @@ app.post('/api/generate', (req, res) => {
     maxResults: body.maxResults || 5,
   };
   const b64 = encodeConfig(cfg);
-  const baseUrl = `${req.protocol}://${req.get('host')}`;
+  const baseUrl = getBaseUrl(req);
   const manifestUrl = `${baseUrl}/${b64}/manifest.json`;
   const stremioLink = `stremio://${manifestUrl.replace(/^https?:\/\//, '')}`;
   res.json({ manifestUrl, stremioLink });
@@ -1338,7 +1346,7 @@ app.get('/:config/manifest.json', (req, res) => {
 });
 app.get('/:config/stream/:type/:id.json', async (req, res) => {
   const config = decodeConfig(req.params.config);
-  config._addonBase = `${req.protocol}://${req.get('host')}`;
+  config._addonBase = getBaseUrl(req);
   const result = await handleStream(config, req.params.type, req.params.id);
   res.json(result);
 });
@@ -1363,7 +1371,7 @@ app.get('/stremio/:uuid/:config/manifest.json', (req, res) => {
 
 app.get('/stremio/:uuid/:config/stream/:type/:id.json', async (req, res) => {
   const config = decodeConfig(req.params.config);
-  config._addonBase = `${req.protocol}://${req.get('host')}`;
+  config._addonBase = getBaseUrl(req);
   const { type, id } = req.params;
   const result = await handleStream(config, type, id);
   res.json(result);
