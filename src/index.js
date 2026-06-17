@@ -1298,20 +1298,18 @@ async function testMagnetz() {
     prowlarrUrl: c.prowlarrUrl, prowlarrApiKey: c.prowlarrApiKey,
     torrentioUrl: c.torrentioUrl,
     cometUrl: c.cometUrl,
+    peerflixUrl: c.peerflixUrl,
     jacredUrl: c.jacredUrl, jacredApiKey: c.jacredApiKey,
     mediafusionUrl: c.mediafusionUrl,
+    magnetzUrl: c.magnetzUrl,
     torrServerUrl: c.torrServerUrl, torrServerUser: c.torrServerUser,
     torrServerPassword: c.torrServerPassword, torrServerType: c.torrServerType || 'official',
     saveToDb: c.saveToDb || false,
     maxResults: c.maxResults || 5,
+    // All priorities equal by default — matches collectConfig defaults
     jackettPriority: 3, prowlarrPriority: 3, torrentioPriority: 3,
     cometPriority: 3, peerflixPriority: 3, jacredPriority: 3, mediafusionPriority: 3, magnetzPriority: 3,
   };
-  // Apply providerOrder to priority fields
-  if (Array.isArray(c.providerOrder)) {
-    const map = { j: 'jackettPriority', p: 'prowlarrPriority', t: 'torrentioPriority', o: 'cometPriority', e: 'peerflixPriority', a: 'jacredPriority', f: 'mediafusionPriority', z: 'magnetzPriority' };
-    c.providerOrder.forEach((code, idx) => { if (map[code]) fields[map[code]] = idx + 1; });
-  }
   const toggleMap = {
     jackettUrl: 'jackettToggle', prowlarrUrl: 'prowlarrToggle',
     torrentioUrl: 'torrentioToggle', cometUrl: 'cometToggle',
