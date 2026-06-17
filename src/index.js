@@ -118,7 +118,7 @@ function encodeConfig(config) {
     if (config[key] && config[key] !== 3) pv[code] = config[key];
   }
   if (Object.keys(pv).length) c.v = pv;
-  c.m = Math.min(Math.max(parseInt(config.maxResults || '5', 10) || 5, 1), 20);
+  c.m = Math.min(Math.max(parseInt(config.maxResults || '5', 10) || 5, 1), 50);
   return Buffer.from(JSON.stringify(c)).toString('base64')
     .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
