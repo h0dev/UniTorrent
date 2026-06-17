@@ -118,7 +118,7 @@ function encodeConfig(config) {
     if (config[key] && config[key] !== 3) pv[code] = config[key];
   }
   if (Object.keys(pv).length) c.v = pv;
-  c.m = Math.min(Math.max(parseInt(config.maxResults || '5', 10) || 5, 1), 50);
+  c.m = Math.max(parseInt(config.maxResults || '5', 10) || 5, 1);
   return Buffer.from(JSON.stringify(c)).toString('base64')
     .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
@@ -1147,6 +1147,10 @@ function collectConfig() {
     saveToDb: document.getElementById('saveToDb').checked,
     maxResults: document.getElementById('maxResults').value || 5,
     providerOrder,
+    jackettPriority: priorities.j, prowlarrPriority: priorities.p,
+    torrentioPriority: priorities.t, cometPriority: priorities.o,
+    peerflixPriority: priorities.e, jacredPriority: priorities.a,
+    mediafusionPriority: priorities.f, magnetzPriority: priorities.z,
   };
 }
 async function generateUrl() {
@@ -1523,6 +1527,14 @@ app.post('/api/generate', (req, res) => {
     torrServerType: body.torrServerType || 'official',
     saveToDb: !!body.saveToDb,
     providerOrder: Array.isArray(body.providerOrder) ? body.providerOrder : undefined,
+    jackettPriority: parseInt(body.jackettPriority) || 3,
+    prowlarrPriority: parseInt(body.prowlarrPriority) || 3,
+    torrentioPriority: parseInt(body.torrentioPriority) || 3,
+    cometPriority: parseInt(body.cometPriority) || 3,
+    peerflixPriority: parseInt(body.peerflixPriority) || 3,
+    jacredPriority: parseInt(body.jacredPriority) || 3,
+    mediafusionPriority: parseInt(body.mediafusionPriority) || 3,
+    magnetzPriority: parseInt(body.magnetzPriority) || 3,
     maxResults: body.maxResults || 5,
   };
   const b64 = encodeConfig(cfg);
