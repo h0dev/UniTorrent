@@ -110,9 +110,14 @@ function encodeConfig(config) {
       c.s.d = true;
     }
   }
-  if (config.providerOrder) {
-    c.r = config.providerOrder;
+  if (config.providerOrder) c.r = config.providerOrder;
+  // Store priority values (only non-default to save space)
+  const pv = {};
+  const priorityCodeMap = [['j','jackettPriority'],['p','prowlarrPriority'],['t','torrentioPriority'],['o','cometPriority'],['e','peerflixPriority'],['a','jacredPriority'],['f','mediafusionPriority'],['z','magnetzPriority']];
+  for (const [code, key] of priorityCodeMap) {
+    if (config[key] && config[key] !== 3) pv[code] = config[key];
   }
+  if (Object.keys(pv).length) c.v = pv;
   c.m = Math.min(Math.max(parseInt(config.maxResults || '5', 10) || 5, 1), 20);
   return Buffer.from(JSON.stringify(c)).toString('base64')
     .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -136,6 +141,13 @@ function decodeConfig(b64) {
     if (d.a && d.a.u) { cfg.jacredUrl = d.a.u; cfg.jacredApiKey = d.a.k || ''; }
     if (d.f && d.f.u) { cfg.mediafusionUrl = d.f.u; }
     if (d.z && d.z.u) { cfg.magnetzUrl = d.z.u; }
+    // Restore priority values from stored config
+    if (d.v) {
+      const pvMap = { j: 'jackettPriority', p: 'prowlarrPriority', t: 'torrentioPriority', o: 'cometPriority', e: 'peerflixPriority', a: 'jacredPriority', f: 'mediafusionPriority', z: 'magnetzPriority' };
+      for (const [code, val] of Object.entries(d.v)) {
+        if (pvMap[code]) cfg[pvMap[code]] = val;
+      }
+    }
     if (d.s) {
       if (typeof d.s === 'string') { cfg.torrServerUrl = d.s; }
       else {
@@ -1306,9 +1318,11 @@ async function testMagnetz() {
     torrServerPassword: c.torrServerPassword, torrServerType: c.torrServerType || 'official',
     saveToDb: c.saveToDb || false,
     maxResults: c.maxResults || 5,
-    // All priorities equal by default — matches collectConfig defaults
-    jackettPriority: 3, prowlarrPriority: 3, torrentioPriority: 3,
-    cometPriority: 3, peerflixPriority: 3, jacredPriority: 3, mediafusionPriority: 3, magnetzPriority: 3,
+    // All priorities from config (default 3), preserves user's custom values
+    jackettPriority: c.jackettPriority || 3, prowlarrPriority: c.prowlarrPriority || 3,
+    torrentioPriority: c.torrentioPriority || 3, cometPriority: c.cometPriority || 3,
+    peerflixPriority: c.peerflixPriority || 3, jacredPriority: c.jacredPriority || 3,
+    mediafusionPriority: c.mediafusionPriority || 3, magnetzPriority: c.magnetzPriority || 3,
   };
   const toggleMap = {
     jackettUrl: 'jackettToggle', prowlarrUrl: 'prowlarrToggle',
