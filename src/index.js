@@ -805,216 +805,29 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 <body>
 <div class="header">
   <h1>UniTorrent</h1>
-  <p>Jackett + Prowlarr + Torrentio + Comet + Peerflix + Jacred + MediaFusion → TorrServer</p>
+  <p>Jackett + Prowlarr + Torrentio + Comet + Peerflix + Jacred + MediaFusion + bitmagnet → TorrServer</p>
 </div>
 
 <div class="tab-content">
   <div class="tab-pane active" id="tab-providers">
-    <!-- Jackett -->
-    <div class="card">
-      <div class="card-header">
-        Jackett <span class="badge" id="jackettBadge">Off</span>
-      </div>
-      <div class="provider-card">
-        <div class="provider-header">
-          <span class="provider-name">Jackett</span>
-          <label class="toggle" id="jackettToggle"></label>
-        </div>
-        <div class="form-group">
-          <label>Jackett URL</label>
-          <input type="url" id="jackettUrl" placeholder="http://192.168.1.100:9117">
-        </div>
-        <div class="form-group">
-          <label>API Key</label>
-          <input type="text" id="jackettApiKey" placeholder="API Key from Jackett">
-        </div>
-        <div style="display:flex;gap:8px;align-items:center">
-          <button class="btn btn-secondary btn-sm" onclick="testJackett()">Test</button>
-          <div style="margin-left:auto;display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-dim)">
-            Priority
-            <input type="number" id="jackettPriority" min="1" max="6" value="3" style="width:40px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:11px;text-align:center">
-          </div>
-        </div>
-        <div class="test-result" id="jackettTestResult"></div>
+    <div id="providerList"></div>
+    <div style="padding:8px 0">
+      <div class="form-group">
+        <select id="addProviderSelect" style="width:100%;padding:12px;border:1px dashed var(--border);border-radius:10px;background:rgba(0,0,0,.2);color:var(--text-dim);font-size:13px;cursor:pointer;appearance:none;text-align:center">
+          <option value="">+ Add Provider</option>
+          <option value="jackett">Jackett</option>
+          <option value="prowlarr">Prowlarr</option>
+          <option value="torrentio">Torrentio</option>
+          <option value="comet">Comet</option>
+          <option value="peerflix">Peerflix</option>
+          <option value="jacred">Jacred</option>
+          <option value="mediafusion">MediaFusion</option>
+          <option value="magnetz">Magnetz</option>
+          <option value="bitmagnet">bitmagnet</option>
+        </select>
       </div>
     </div>
-    <!-- Prowlarr -->
-    <div class="card">
-      <div class="card-header">
-        Prowlarr <span class="badge" id="prowlarrBadge">Off</span>
-      </div>
-      <div class="provider-card">
-        <div class="provider-header">
-          <span class="provider-name">Prowlarr</span>
-          <label class="toggle" id="prowlarrToggle"></label>
-        </div>
-        <div class="form-group">
-          <label>Prowlarr URL</label>
-          <input type="url" id="prowlarrUrl" placeholder="http://192.168.1.100:9696">
-        </div>
-        <div class="form-group">
-          <label>API Key</label>
-          <input type="text" id="prowlarrApiKey" placeholder="API Key from Prowlarr">
-        </div>
-        <div style="display:flex;gap:8px;align-items:center">
-          <button class="btn btn-secondary btn-sm" onclick="testProwlarr()">Test</button>
-          <div style="margin-left:auto;display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-dim)">
-            Priority
-            <input type="number" id="prowlarrPriority" min="1" max="6" value="3" style="width:40px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:11px;text-align:center">
-          </div>
-        </div>
-        <div class="test-result" id="prowlarrTestResult"></div>
-      </div>
-    </div>
-    <!-- Comet -->
-    <div class="card">
-      <div class="card-header">
-        Comet <span class="badge" id="cometBadge">Off</span>
-      </div>
-      <div class="provider-card">
-        <div class="provider-header">
-          <span class="provider-name">Comet</span>
-          <label class="toggle" id="cometToggle"></label>
-        </div>
-        <div class="form-group">
-          <label>Comet Manifest URL</label>
-          <input type="url" id="cometUrl" placeholder="https://comet.feels.legal/manifest.json">
-        </div>
-        <div style="display:flex;gap:8px;align-items:center">
-          <button class="btn btn-secondary btn-sm" onclick="testComet()">Test</button>
-          <div style="margin-left:auto;display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-dim)">
-            Priority
-            <input type="number" id="cometPriority" min="1" max="6" value="3" style="width:40px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:11px;text-align:center">
-          </div>
-        </div>
-        <div class="test-result" id="cometTestResult"></div>
-      </div>
-    </div>
-    <!-- Peerflix -->
-    <div class="card">
-      <div class="card-header">
-        Peerflix <span class="badge" id="peerflixBadge">Off</span>
-      </div>
-      <div class="provider-card">
-        <div class="provider-header">
-          <span class="provider-name">Peerflix</span>
-          <label class="toggle" id="peerflixToggle"></label>
-        </div>
-        <div class="form-group">
-          <label>Peerflix Manifest URL</label>
-          <input type="url" id="peerflixUrl" placeholder="https://peerflix.mov/manifest.json">
-        </div>
-        <div style="display:flex;gap:8px;align-items:center">
-          <button class="btn btn-secondary btn-sm" onclick="testPeerflix()">Test</button>
-          <div style="margin-left:auto;display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-dim)">
-            Priority
-            <input type="number" id="peerflixPriority" min="1" max="6" value="3" style="width:40px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:11px;text-align:center">
-          </div>
-        </div>
-        <div class="test-result" id="peerflixTestResult"></div>
-      </div>
-    </div>
-    <!-- Torrentio -->
-    <div class="card">
-      <div class="card-header">
-        Torrentio <span class="badge" id="torrentioBadge">Off</span>
-      </div>
-      <div class="provider-card">
-        <div class="provider-header">
-          <span class="provider-name">Torrentio</span>
-          <label class="toggle" id="torrentioToggle"></label>
-        </div>
-        <div class="form-group">
-          <label>Torrentio Manifest URL <span style="color:var(--text-dim);font-weight:400">(default: torrentio.strem.fun)</span></label>
-          <input type="url" id="torrentioUrl" placeholder="https://torrentio.strem.fun/manifest.json">
-        </div>
-        <div style="display:flex;gap:8px;align-items:center">
-          <button class="btn btn-secondary btn-sm" onclick="testTorrentio()">Test</button>
-          <div style="margin-left:auto;display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-dim)">
-            Priority
-            <input type="number" id="torrentioPriority" min="1" max="6" value="2" style="width:40px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:11px;text-align:center">
-          </div>
-        </div>
-        <div class="test-result" id="torrentioTestResult"></div>
-      </div>
-    </div>
-    <!-- Jacred -->
-    <div class="card">
-      <div class="card-header">
-        Jacred <span class="badge" id="jacredBadge">Off</span>
-      </div>
-      <div class="provider-card">
-        <div class="provider-header">
-          <span class="provider-name">Jacred</span>
-          <label class="toggle" id="jacredToggle"></label>
-        </div>
-        <div class="form-group">
-          <label>Jacred URL</label>
-          <input type="url" id="jacredUrl" placeholder="http://192.168.1.100:9120">
-        </div>
-        <div class="form-group">
-          <label>API Key <span style="color:var(--text-dim);font-weight:400">(optional — REST API used if empty)</span></label>
-          <input type="text" id="jacredApiKey" placeholder="Leave empty if REST API is available">
-        </div>
-        <div style="display:flex;gap:8px;align-items:center">
-          <button class="btn btn-secondary btn-sm" onclick="testJacred()">Test</button>
-          <div style="margin-left:auto;display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-dim)">
-            Priority
-            <input type="number" id="jacredPriority" min="1" max="6" value="3" style="width:40px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:11px;text-align:center">
-          </div>
-        </div>
-        <div class="test-result" id="jacredTestResult"></div>
-      </div>
-    </div>
-    <!-- MediaFusion -->
-    <div class="card">
-      <div class="card-header">
-        MediaFusion <span class="badge" id="mediafusionBadge">Off</span>
-      </div>
-      <div class="provider-card">
-        <div class="provider-header">
-          <span class="provider-name">MediaFusion</span>
-          <label class="toggle" id="mediafusionToggle"></label>
-        </div>
-        <div class="form-group">
-          <label>MediaFusion Manifest URL</label>
-          <input type="url" id="mediafusionUrl" placeholder="https://mediafusion.elfhosted.com/manifest.json">
-        </div>
-        <div style="display:flex;gap:8px;align-items:center">
-          <button class="btn btn-secondary btn-sm" onclick="testMediafusion()">Test</button>
-          <div style="margin-left:auto;display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-dim)">
-            Priority
-            <input type="number" id="mediafusionPriority" min="1" max="6" value="3" style="width:40px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:11px;text-align:center">
-          </div>
-        </div>
-        <div class="test-result" id="mediafusionTestResult"></div>
-      </div>
-    </div>
-    <!-- Magnetz -->
-    <div class="card">
-      <div class="card-header">
-        Magnetz <span class="badge" id="magnetzBadge">Off</span>
-      </div>
-      <div class="provider-card">
-        <div class="provider-header">
-          <span class="provider-name">Magnetz</span>
-          <label class="toggle" id="magnetzToggle"></label>
-        </div>
-        <div class="form-group">
-          <label>Magnetz URL</label>
-          <input type="url" id="magnetzUrl" placeholder="https://magnetz.eu">
-        </div>
-        <div style="display:flex;gap:8px;align-items:center">
-          <button class="btn btn-secondary btn-sm" onclick="testMagnetz()">Test</button>
-          <div style="margin-left:auto;display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-dim)">
-            Priority
-            <input type="number" id="magnetzPriority" min="1" max="6" value="3" style="width:40px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:11px;text-align:center">
-          </div>
-        </div>
-        <div class="test-result" id="magnetzTestResult"></div>
-      </div>
-    </div>
-  </div> <!-- /provider tab -->
+  </div>
 
   <div class="tab-pane" id="tab-server">
     <div class="card">
@@ -1088,318 +901,255 @@ window.switchTab = function(name) {
   if (idx != null) document.querySelectorAll('.tab-btn')[idx].classList.add('active');
   document.getElementById('tab-' + name).classList.add('active');
 }
+
 function showToast(msg, type) {
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.className = 'toast show';
   setTimeout(() => t.classList.remove('show'), 3000);
 }
-function setupToggle(id) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.addEventListener('click', (e) => {
-    e.preventDefault();
-    el.classList.toggle('active');
-    // Update badge: On when toggle active + URL filled, else Off
-    const badgeId = id.replace('Toggle', 'Badge');
-    const urlId = id.replace('Toggle', 'Url').toLowerCase();
-    const urlEl = document.getElementById(urlId);
-    const badge = document.getElementById(badgeId);
-    if (badge) {
-      const hasUrl = urlEl && urlEl.value && urlEl.value.trim();
-      if (el.classList.contains('active') && hasUrl) {
-        badge.textContent = 'On';
-        badge.className = 'badge success';
-      } else {
-        badge.textContent = 'Off';
-        badge.className = 'badge';
-      }
+
+// --- Provider Type Registry ---
+var PROVIDER_DEFS = {
+  jackett:    { name: 'Jackett',    code: 'j', fields: [{id:'url',label:'Jackett URL',placeholder:'http://192.168.1.100:9117'},{id:'apiKey',label:'API Key',placeholder:'API Key from Jackett'}] },
+  prowlarr:   { name: 'Prowlarr',   code: 'p', fields: [{id:'url',label:'Prowlarr URL',placeholder:'http://192.168.1.100:9696'},{id:'apiKey',label:'API Key',placeholder:'API Key from Prowlarr'}] },
+  torrentio:  { name: 'Torrentio',  code: 't', fields: [{id:'url',label:'Manifest URL',placeholder:'https://torrentio.strem.fun/manifest.json'}], defaultPriority: 2 },
+  comet:      { name: 'Comet',      code: 'o', fields: [{id:'url',label:'Manifest URL',placeholder:'https://comet.feels.legal/manifest.json'}] },
+  peerflix:   { name: 'Peerflix',   code: 'e', fields: [{id:'url',label:'Manifest URL',placeholder:'https://peerflix.mov/manifest.json'}] },
+  jacred:     { name: 'Jacred',     code: 'a', fields: [{id:'url',label:'Jacred URL',placeholder:'http://192.168.1.100:9120'},{id:'apiKey',label:'API Key',placeholder:'Optional \u2014 REST API used if empty',optional:true}] },
+  mediafusion:{ name: 'MediaFusion',code: 'f', fields: [{id:'url',label:'Manifest URL',placeholder:'https://mediafusion.elfhosted.com/manifest.json'}] },
+  magnetz:    { name: 'Magnetz',    code: 'z', fields: [{id:'url',label:'Magnetz URL',placeholder:'https://magnetz.eu'}] },
+  bitmagnet:  { name: 'bitmagnet',  code: 'b', fields: [{id:'url',label:'bitmagnet URL',placeholder:'http://localhost:3333'}] },
+};
+
+// --- State ---
+var addedProviders = []; // Array of { type, url, apiKey, priority, enabled }
+
+// --- Rendering ---
+function renderProviders() {
+  var list = document.getElementById('providerList');
+  list.innerHTML = '';
+  addedProviders.forEach(function(p, idx) {
+    var def = PROVIDER_DEFS[p.type];
+    if (!def) return;
+    var card = document.createElement('div');
+    card.className = 'card';
+    var html = '';
+    html += '<div class="card-header" style="cursor:pointer" onclick="toggleProviderCard(' + idx + ')">';
+    html += '<span>' + def.name + '</span>';
+    html += '<div style="display:flex;align-items:center;gap:8px">';
+    html += '<span class="badge" id="badge-' + idx + '">' + (p.enabled ? 'On' : 'Off') + '</span>';
+    html += '<button class="btn btn-sm" style="color:var(--error);background:none;border:none;font-size:16px;padding:0 4px" onclick="event.stopPropagation();removeProvider(' + idx + ')">\u2715</button>';
+    html += '</div></div>';
+    html += '<div class="provider-card" id="card-body-' + idx + '" style="display:' + (p._expanded !== false ? 'block' : 'none') + '">';
+    html += '<div class="provider-header">';
+    html += '<span class="provider-name">' + def.name + '</span>';
+    html += '<label class="toggle ' + (p.enabled ? 'active' : '') + '" id="toggle-' + idx + '" onclick="toggleProvider(' + idx + ')"></label>';
+    html += '</div>';
+    def.fields.forEach(function(f) {
+      html += '<div class="form-group">';
+      html += '<label>' + f.label + (f.optional ? ' <span style="color:var(--text-dim);font-weight:400">(optional)</span>' : '') + '</label>';
+      html += '<input type="' + (f.id === 'apiKey' ? 'text' : 'url') + '" id="' + p.type + '_' + f.id + '-' + idx + '" placeholder="' + f.placeholder + '" value="' + (p[f.id] || '') + '" oninput="updateProviderField(' + idx + ',\'' + f.id + '\',this.value)">';
+      html += '</div>';
+    });
+    html += '<div style="display:flex;gap:8px;align-items:center">';
+    html += '<button class="btn btn-secondary btn-sm" onclick="testProvider(\'' + p.type + '\',' + idx + ')">Test</button>';
+    html += '<div style="margin-left:auto;display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-dim)">';
+    html += 'Priority <input type="number" min="1" max="20" value="' + p.priority + '" style="width:40px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:11px;text-align:center" oninput="updateProviderField(' + idx + ',\'priority\',parseInt(this.value)||3)">';
+    html += '</div></div>';
+    html += '<div class="test-result" id="testResult-' + idx + '"></div>';
+    html += '</div>';
+    card.innerHTML = html;
+    list.appendChild(card);
+  });
+  updateBadge();
+  // Disable already-added types in dropdown
+  document.querySelectorAll('#addProviderSelect option').forEach(function(opt) {
+    if (opt.value && addedProviders.some(function(p) { return p.type === opt.value; })) {
+      opt.disabled = true;
+      opt.textContent = opt.textContent.replace(/ \(added\)/g, '') + ' (added)';
+    } else {
+      opt.disabled = false;
+      opt.textContent = opt.textContent.replace(/ \(added\)/g, '');
     }
   });
 }
-setupToggle('jackettToggle');
-setupToggle('prowlarrToggle');
-setupToggle('torrentioToggle');
-setupToggle('cometToggle');
-setupToggle('peerflixToggle');
-setupToggle('jacredToggle');
-setupToggle('mediafusionToggle');
-setupToggle('magnetzToggle');
-function collectConfig() {
-  const priorities = {
-    j: parseInt(document.getElementById('jackettPriority').value) || 3,
-    p: parseInt(document.getElementById('prowlarrPriority').value) || 3,
-    t: parseInt(document.getElementById('torrentioPriority').value) || 3,
-    o: parseInt(document.getElementById('cometPriority').value) || 3,
-    e: parseInt(document.getElementById('peerflixPriority').value) || 3,
-    a: parseInt(document.getElementById('jacredPriority').value) || 3,
-    f: parseInt(document.getElementById('mediafusionPriority').value) || 3,
-    z: parseInt(document.getElementById('magnetzPriority').value) || 3,
+
+// --- Provider Management ---
+function addProvider(type) {
+  if (addedProviders.some(function(p) { return p.type === type; })) return;
+  var def = PROVIDER_DEFS[type];
+  addedProviders.push({ type: type, url: '', apiKey: '', priority: def.defaultPriority || 3, enabled: true, _expanded: true });
+  renderProviders();
+  document.getElementById('addProviderSelect').value = '';
+}
+
+function removeProvider(idx) {
+  addedProviders.splice(idx, 1);
+  renderProviders();
+}
+
+function toggleProviderCard(idx) {
+  var body = document.getElementById('card-body-' + idx);
+  if (body) body.style.display = body.style.display === 'none' ? 'block' : 'none';
+}
+
+function toggleProvider(idx) {
+  addedProviders[idx].enabled = !addedProviders[idx].enabled;
+  renderProviders();
+}
+
+function updateProviderField(idx, field, value) {
+  addedProviders[idx][field] = value;
+  updateBadge();
+}
+
+function updateBadge() {
+  addedProviders.forEach(function(p, idx) {
+    var badge = document.getElementById('badge-' + idx);
+    if (badge) {
+      var hasUrl = p.url && p.url.trim();
+      badge.textContent = p.enabled && hasUrl ? 'On' : 'Off';
+      badge.className = 'badge' + (p.enabled && hasUrl ? ' success' : '');
+    }
+  });
+}
+
+function testProvider(type, idx) {
+  var p = addedProviders[idx];
+  var el = document.getElementById('testResult-' + idx);
+  var testUrls = {
+    jackett: '/api/test/jackett?url=' + encodeURIComponent(p.url) + '&key=' + encodeURIComponent(p.apiKey||''),
+    prowlarr: '/api/test/prowlarr?url=' + encodeURIComponent(p.url) + '&key=' + encodeURIComponent(p.apiKey||''),
+    torrentio: '/api/test/torrentio?url=' + encodeURIComponent(p.url),
+    comet: '/api/test/comet?url=' + encodeURIComponent(p.url),
+    peerflix: '/api/test/peerflix?url=' + encodeURIComponent(p.url),
+    jacred: '/api/test/jacred?url=' + encodeURIComponent(p.url) + '&key=' + encodeURIComponent(p.apiKey||''),
+    mediafusion: '/api/test/mediafusion?url=' + encodeURIComponent(p.url),
+    magnetz: '/api/test/magnetz?url=' + encodeURIComponent(p.url),
+    bitmagnet: '/api/test/bitmagnet?url=' + encodeURIComponent(p.url),
   };
-  const providerOrder = Object.entries(priorities).sort((a, b) => a[1] - b[1]).map(e => e[0]);
-  return {
-    jackettUrl: document.getElementById('jackettUrl').value,
-    jackettApiKey: document.getElementById('jackettApiKey').value,
-    jackettEnabled: document.getElementById('jackettToggle').classList.contains('active'),
-    prowlarrUrl: document.getElementById('prowlarrUrl').value,
-    prowlarrApiKey: document.getElementById('prowlarrApiKey').value,
-    prowlarrEnabled: document.getElementById('prowlarrToggle').classList.contains('active'),
-    torrentioUrl: document.getElementById('torrentioUrl').value,
-    torrentioEnabled: document.getElementById('torrentioToggle').classList.contains('active'),
-    cometUrl: document.getElementById('cometUrl').value,
-    cometEnabled: document.getElementById('cometToggle').classList.contains('active'),
-    peerflixUrl: document.getElementById('peerflixUrl').value,
-    peerflixEnabled: document.getElementById('peerflixToggle').classList.contains('active'),
-    jacredUrl: document.getElementById('jacredUrl').value,
-    jacredApiKey: document.getElementById('jacredApiKey').value,
-    jacredEnabled: document.getElementById('jacredToggle').classList.contains('active'),
-    mediafusionUrl: document.getElementById('mediafusionUrl').value,
-    mediafusionEnabled: document.getElementById('mediafusionToggle').classList.contains('active'),
-    magnetzUrl: document.getElementById('magnetzUrl').value,
-    magnetzEnabled: document.getElementById('magnetzToggle').classList.contains('active'),
+  if (!p.url) { el.className = 'test-result show error'; el.textContent = 'Enter URL'; return; }
+  el.className = 'test-result'; el.textContent = 'Testing...';
+  fetch(testUrls[type]).then(function(r) { return r.json(); }).then(function(d) {
+    el.className = 'test-result show ' + (d.ok ? 'success' : 'error');
+    el.textContent = d.message;
+  }).catch(function(e) { el.className = 'test-result show error'; el.textContent = e.message; });
+}
+
+// --- Config Collection ---
+function collectConfig() {
+  var providerCodeMap = { jackett:'j', prowlarr:'p', torrentio:'t', comet:'o', peerflix:'e', jacred:'a', mediafusion:'f', magnetz:'z', bitmagnet:'b' };
+  var priorities = {};
+  addedProviders.forEach(function(p) {
+    var code = providerCodeMap[p.type];
+    if (code) priorities[code] = p.priority || 3;
+  });
+  var providerOrder = Object.entries(priorities).sort(function(a, b) { return a[1] - b[1]; }).map(function(e) { return e[0]; });
+
+  var cfg = {
+    jackettUrl: '', jackettApiKey: '', jackettEnabled: false,
+    prowlarrUrl: '', prowlarrApiKey: '', prowlarrEnabled: false,
+    torrentioUrl: '', torrentioEnabled: false,
+    cometUrl: '', cometEnabled: false,
+    peerflixUrl: '', peerflixEnabled: false,
+    jacredUrl: '', jacredApiKey: '', jacredEnabled: false,
+    mediafusionUrl: '', mediafusionEnabled: false,
+    magnetzUrl: '', magnetzEnabled: false,
+    bitmagnetUrl: '', bitmagnetEnabled: false,
     torrServerUrl: document.getElementById('torrServerUrl').value,
     torrServerUser: document.getElementById('torrServerUser').value,
     torrServerPassword: document.getElementById('torrServerPassword').value,
     torrServerType: document.getElementById('torrServerType').value,
     saveToDb: document.getElementById('saveToDb').checked,
     maxResults: document.getElementById('maxResults').value || 5,
-    providerOrder,
-    jackettPriority: priorities.j, prowlarrPriority: priorities.p,
-    torrentioPriority: priorities.t, cometPriority: priorities.o,
-    peerflixPriority: priorities.e, jacredPriority: priorities.a,
-    mediafusionPriority: priorities.f, magnetzPriority: priorities.z,
+    providerOrder: providerOrder,
   };
+
+  addedProviders.forEach(function(p) {
+    cfg[p.type + 'Url'] = p.url || '';
+    cfg[p.type + 'Enabled'] = p.enabled;
+    if (p.apiKey) cfg[p.type + 'ApiKey'] = p.apiKey;
+    cfg[p.type + 'Priority'] = p.priority || 3;
+  });
+
+  return cfg;
 }
-async function generateUrl() {
-  const cfg = collectConfig();
-  const hasJackett = cfg.jackettEnabled && cfg.jackettUrl && cfg.jackettApiKey;
-  const hasProwlarr = cfg.prowlarrEnabled && cfg.prowlarrUrl && cfg.prowlarrApiKey;
-  const hasTorrentio = cfg.torrentioEnabled && cfg.torrentioUrl;
-  const hasComet = cfg.cometEnabled && cfg.cometUrl;
-  const hasPeerflix = cfg.peerflixEnabled && cfg.peerflixUrl;
-  const hasJacred = cfg.jacredEnabled && cfg.jacredUrl;
-  const hasMediaFusion = cfg.mediafusionEnabled && cfg.mediafusionUrl;
-  const hasMagnetz = cfg.magnetzEnabled && cfg.magnetzUrl;
-  if (!hasJackett && !hasProwlarr && !hasTorrentio && !hasComet && !hasPeerflix && !hasJacred && !hasMediaFusion && !hasMagnetz) {
-    showToast('Enable at least 1 provider');
+
+// --- URL Generation ---
+function generateUrl() {
+  var cfg = collectConfig();
+  // Check at least one provider is enabled with a URL
+  var hasAny = addedProviders.some(function(p) { return p.enabled && p.url && p.url.trim(); });
+  if (!hasAny) {
+    showToast('Add and enable at least 1 provider');
     return;
   }
-  try {
-    const resp = await fetch('/api/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(cfg),
-    });
+  fetch('/api/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(cfg),
+  }).then(function(resp) {
     if (!resp.ok) { showToast('Server error'); return; }
-    const data = await resp.json();
+    return resp.json();
+  }).then(function(data) {
+    if (!data) return;
     document.getElementById('resultUrl').textContent = data.manifestUrl;
     document.getElementById('stremioLink').href = data.stremioLink;
     document.getElementById('resultBox').style.display = 'block';
     switchTab('url');
-  } catch (e) { showToast('Error: ' + e.message); }
+  }).catch(function(e) { showToast('Error: ' + e.message); });
 }
+
 function copyUrl() {
-  const text = document.getElementById('resultUrl').textContent;
+  var text = document.getElementById('resultUrl').textContent;
   if (navigator.clipboard) {
-    navigator.clipboard.writeText(text).then(() => showToast('URL copied!'));
+    navigator.clipboard.writeText(text).then(function() { showToast('URL copied!'); });
   } else {
-    const ta = document.createElement('textarea');
+    var ta = document.createElement('textarea');
     ta.value = text; document.body.appendChild(ta);
     ta.select(); document.execCommand('copy');
     document.body.removeChild(ta); showToast('URL copied!');
   }
 }
-async function testJackett() {
-  const url = document.getElementById('jackettUrl').value;
-  const key = document.getElementById('jackettApiKey').value;
-  const el = document.getElementById('jackettTestResult');
-  if (!url || !key) { el.className = 'test-result show error'; el.textContent = 'Enter URL and API Key'; return; }
-  try {
-    el.className = 'test-result'; el.textContent = 'Testing...';
-    const r = await fetch('/api/test/jackett?url=' + encodeURIComponent(url) + '&key=' + encodeURIComponent(key));
-    const d = await r.json();
-    el.className = 'test-result show ' + (d.ok ? 'success' : 'error');
-    el.textContent = d.ok ? d.message : d.message;
-    document.getElementById('jackettBadge').textContent = d.ok ? 'OK' : 'Error';
-    document.getElementById('jackettBadge').className = 'badge ' + (d.ok ? 'success' : 'error');
-  } catch (e) { el.className = 'test-result show error'; el.textContent = e.message; }
-}
-async function testProwlarr() {
-  const url = document.getElementById('prowlarrUrl').value;
-  const key = document.getElementById('prowlarrApiKey').value;
-  const el = document.getElementById('prowlarrTestResult');
-  if (!url || !key) { el.className = 'test-result show error'; el.textContent = 'Enter URL and API Key'; return; }
-  try {
-    el.className = 'test-result'; el.textContent = 'Testing...';
-    const r = await fetch('/api/test/prowlarr?url=' + encodeURIComponent(url) + '&key=' + encodeURIComponent(key));
-    const d = await r.json();
-    el.className = 'test-result show ' + (d.ok ? 'success' : 'error');
-    el.textContent = d.ok ? d.message : d.message;
-    document.getElementById('prowlarrBadge').textContent = d.ok ? 'OK' : 'Error';
-    document.getElementById('prowlarrBadge').className = 'badge ' + (d.ok ? 'success' : 'error');
-  } catch (e) { el.className = 'test-result show error'; el.textContent = e.message; }
-}
-async function testComet() {
-  const url = document.getElementById('cometUrl').value;
-  const el = document.getElementById('cometTestResult');
-  if (!url) { el.className = 'test-result show error'; el.textContent = 'Enter URL'; return; }
-  try {
-    el.className = 'test-result'; el.textContent = 'Testing...';
-    const r = await fetch('/api/test/comet?url=' + encodeURIComponent(url));
-    const d = await r.json();
-    el.className = 'test-result show ' + (d.ok ? 'success' : 'error');
-    el.textContent = d.ok ? d.message : d.message;
-    document.getElementById('cometBadge').textContent = d.ok ? 'OK' : 'Error';
-    document.getElementById('cometBadge').className = 'badge ' + (d.ok ? 'success' : 'error');
-  } catch (e) { el.className = 'test-result show error'; el.textContent = e.message; }
-}
-async function testTorrentio() {
-  const url = document.getElementById('torrentioUrl').value || 'https://torrentio.strem.fun/manifest.json';
-  const el = document.getElementById('torrentioTestResult');
-  try {
-    el.className = 'test-result'; el.textContent = 'Testing...';
-    const r = await fetch('/api/test/torrentio?url=' + encodeURIComponent(url));
-    const d = await r.json();
-    el.className = 'test-result show ' + (d.ok ? 'success' : 'error');
-    el.textContent = d.ok ? d.message : d.message;
-    document.getElementById('torrentioBadge').textContent = d.ok ? 'OK' : 'Error';
-    document.getElementById('torrentioBadge').className = 'badge ' + (d.ok ? 'success' : 'error');
-  } catch (e) { el.className = 'test-result show error'; el.textContent = e.message; }
-}
-async function testPeerflix() {
-  const url = document.getElementById('peerflixUrl').value;
-  const el = document.getElementById('peerflixTestResult');
-  if (!url) { el.className = 'test-result show error'; el.textContent = 'Enter URL'; return; }
-  try {
-    el.className = 'test-result'; el.textContent = 'Testing...';
-    const r = await fetch('/api/test/peerflix?url=' + encodeURIComponent(url));
-    const d = await r.json();
-    el.className = 'test-result show ' + (d.ok ? 'success' : 'error');
-    el.textContent = d.ok ? d.message : d.message;
-    document.getElementById('peerflixBadge').textContent = d.ok ? 'OK' : 'Error';
-    document.getElementById('peerflixBadge').className = 'badge ' + (d.ok ? 'success' : 'error');
-  } catch (e) { el.className = 'test-result show error'; el.textContent = e.message; }
-}
-async function testJacred() {
-  const url = document.getElementById('jacredUrl').value;
-  const key = document.getElementById('jacredApiKey').value;
-  const el = document.getElementById('jacredTestResult');
-  if (!url) { el.className = 'test-result show error'; el.textContent = 'Enter URL'; return; }
-  try {
-    el.className = 'test-result'; el.textContent = 'Testing...';
-    const r = await fetch('/api/test/jacred?url=' + encodeURIComponent(url) + '&key=' + encodeURIComponent(key));
-    const d = await r.json();
-    el.className = 'test-result show ' + (d.ok ? 'success' : 'error');
-    el.textContent = d.ok ? d.message : d.message;
-    document.getElementById('jacredBadge').textContent = d.ok ? 'OK' : 'Error';
-    document.getElementById('jacredBadge').className = 'badge ' + (d.ok ? 'success' : 'error');
-  } catch (e) { el.className = 'test-result show error'; el.textContent = e.message; }
-}
-async function testMediafusion() {
-  const url = document.getElementById('mediafusionUrl').value;
-  const el = document.getElementById('mediafusionTestResult');
-  if (!url) { el.className = 'test-result show error'; el.textContent = 'Enter URL'; return; }
-  try {
-    el.className = 'test-result'; el.textContent = 'Testing...';
-    const r = await fetch('/api/test/mediafusion?url=' + encodeURIComponent(url));
-    const d = await r.json();
-    el.className = 'test-result show ' + (d.ok ? 'success' : 'error');
-    el.textContent = d.ok ? d.message : d.message;
-    document.getElementById('mediafusionBadge').textContent = d.ok ? 'OK' : 'Error';
-    document.getElementById('mediafusionBadge').className = 'badge ' + (d.ok ? 'success' : 'error');
-  } catch (e) { el.className = 'test-result show error'; el.textContent = e.message; }
-}
-async function testMagnetz() {
-  const url = document.getElementById('magnetzUrl').value;
-  const el = document.getElementById('magnetzTestResult');
-  if (!url) { el.className = 'test-result show error'; el.textContent = 'Enter URL'; return; }
-  try {
-    el.className = 'test-result'; el.textContent = 'Testing...';
-    const r = await fetch('/api/test/magnetz?url=' + encodeURIComponent(url));
-    const d = await r.json();
-    el.className = 'test-result show ' + (d.ok ? 'success' : 'error');
-    el.textContent = d.ok ? d.message : d.message;
-    document.getElementById('magnetzBadge').textContent = d.ok ? 'OK' : 'Error';
-    document.getElementById('magnetzBadge').className = 'badge ' + (d.ok ? 'success' : 'error');
-  } catch (e) { el.className = 'test-result show error'; el.textContent = e.message; }
-}
+
+// --- Init from config ---
 (function() {
+  // Wire up dropdown
+  document.getElementById('addProviderSelect').addEventListener('change', function() {
+    if (this.value) addProvider(this.value);
+  });
+
   if (!window.__CONFIG__) return;
-  const c = window.__CONFIG__;
-  const fields = {
-    jackettUrl: c.jackettUrl, jackettApiKey: c.jackettApiKey,
-    prowlarrUrl: c.prowlarrUrl, prowlarrApiKey: c.prowlarrApiKey,
-    torrentioUrl: c.torrentioUrl,
-    cometUrl: c.cometUrl,
-    peerflixUrl: c.peerflixUrl,
-    jacredUrl: c.jacredUrl, jacredApiKey: c.jacredApiKey,
-    mediafusionUrl: c.mediafusionUrl,
-    magnetzUrl: c.magnetzUrl,
-    torrServerUrl: c.torrServerUrl, torrServerUser: c.torrServerUser,
-    torrServerPassword: c.torrServerPassword, torrServerType: c.torrServerType || 'official',
-    saveToDb: c.saveToDb || false,
-    maxResults: c.maxResults || 5,
-    // All priorities from config (default 3), preserves user's custom values
-    jackettPriority: c.jackettPriority || 3, prowlarrPriority: c.prowlarrPriority || 3,
-    torrentioPriority: c.torrentioPriority || 3, cometPriority: c.cometPriority || 3,
-    peerflixPriority: c.peerflixPriority || 3, jacredPriority: c.jacredPriority || 3,
-    mediafusionPriority: c.mediafusionPriority || 3, magnetzPriority: c.magnetzPriority || 3,
-  };
-  const toggleMap = {
-    jackettUrl: 'jackettToggle', prowlarrUrl: 'prowlarrToggle',
-    torrentioUrl: 'torrentioToggle', cometUrl: 'cometToggle',
-    peerflixUrl: 'peerflixToggle', jacredUrl: 'jacredToggle', mediafusionUrl: 'mediafusionToggle',
-    magnetzUrl: 'magnetzToggle',
-  };
-  for (const [id, val] of Object.entries(fields)) {
-    const el = document.getElementById(id);
-    if (!el) continue;
-    if (el.type === 'checkbox') { el.checked = !!val; }
-    else { el.value = val != null ? val : ''; }
-  }
-  for (const [fieldId, toggleId] of Object.entries(toggleMap)) {
-    const toggle = document.getElementById(toggleId);
-    if (toggle && fields[fieldId]) toggle.classList.add('active');
-  }
-  // Sync badges after config load
-  for (const toggleId of Object.values(toggleMap)) {
-    const toggle = document.getElementById(toggleId);
-    const badgeId = toggleId.replace('Toggle', 'Badge');
-    const urlId = toggleId.replace('Toggle', 'Url').toLowerCase();
-    const urlEl = document.getElementById(urlId);
-    const badge = document.getElementById(badgeId);
-    if (badge && toggle) {
-      const hasUrl = urlEl && urlEl.value && urlEl.value.trim();
-      if (toggle.classList.contains('active') && hasUrl) {
-        badge.textContent = 'On';
-        badge.className = 'badge success';
-      } else {
-        badge.textContent = 'Off';
-        badge.className = 'badge';
-      }
+  var c = window.__CONFIG__;
+  var urlMap = { jackett:'jackettUrl', prowlarr:'prowlarrUrl', torrentio:'torrentioUrl', comet:'cometUrl', peerflix:'peerflixUrl', jacred:'jacredUrl', mediafusion:'mediafusionUrl', magnetz:'magnetzUrl', bitmagnet:'bitmagnetUrl' };
+  var keyMap = { jackett:'jackettApiKey', prowlarr:'prowlarrApiKey', jacred:'jacredApiKey' };
+  var prioMap = { jackett:'jackettPriority', prowlarr:'prowlarrPriority', torrentio:'torrentioPriority', comet:'cometPriority', peerflix:'peerflixPriority', jacred:'jacredPriority', mediafusion:'mediafusionPriority', magnetz:'magnetzPriority', bitmagnet:'bitmagnetPriority' };
+
+  var types = ['jackett','prowlarr','torrentio','comet','peerflix','jacred','mediafusion','magnetz','bitmagnet'];
+  types.forEach(function(type) {
+    var url = c[urlMap[type]];
+    if (url) {
+      var def = PROVIDER_DEFS[type];
+      addedProviders.push({
+        type: type,
+        url: url,
+        apiKey: c[keyMap[type]] || '',
+        priority: c[prioMap[type]] || def.defaultPriority || 3,
+        enabled: true,
+      });
     }
-  }
-  // Auto-update badges when URL fields change
-  function syncBadge(toggleId) {
-    const toggle = document.getElementById(toggleId);
-    const badgeId = toggleId.replace('Toggle', 'Badge');
-    const urlId = toggleId.replace('Toggle', 'Url').toLowerCase();
-    const urlEl = document.getElementById(urlId);
-    const badge = document.getElementById(badgeId);
-    if (!badge || !toggle) return;
-    const hasUrl = urlEl && urlEl.value && urlEl.value.trim();
-    if (toggle.classList.contains('active') && hasUrl) {
-      badge.textContent = 'On';
-      badge.className = 'badge success';
-    } else {
-      badge.textContent = 'Off';
-      badge.className = 'badge';
-    }
-  }
-  for (const [fieldId, toggleId] of Object.entries(toggleMap)) {
-    const urlEl = document.getElementById(fieldId);
-    if (urlEl) urlEl.addEventListener('input', () => syncBadge(toggleId));
-  }
+  });
+
+  // Pre-fill TorrServer fields
+  if (c.torrServerUrl) document.getElementById('torrServerUrl').value = c.torrServerUrl;
+  if (c.torrServerUser) document.getElementById('torrServerUser').value = c.torrServerUser;
+  if (c.torrServerPassword) document.getElementById('torrServerPassword').value = c.torrServerPassword;
+  if (c.torrServerType) document.getElementById('torrServerType').value = c.torrServerType;
+  if (c.saveToDb) document.getElementById('saveToDb').checked = true;
+  if (c.maxResults) document.getElementById('maxResults').value = c.maxResults;
+
+  renderProviders();
 })();
 </script>
 </body>
