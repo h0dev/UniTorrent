@@ -983,21 +983,10 @@ function renderProviders() {
     list.appendChild(card);
   });
   updateBadge();
-  // Disable already-added types in dropdown
-  document.querySelectorAll('#addProviderSelect option').forEach(function(opt) {
-    if (opt.value && addedProviders.some(function(p) { return p.type === opt.value; })) {
-      opt.disabled = true;
-      opt.textContent = opt.textContent.replace(/ \\(added\\)/g, '') + ' (added)';
-    } else {
-      opt.disabled = false;
-      opt.textContent = opt.textContent.replace(/ \\(added\\)/g, '');
-    }
-  });
 }
 
 // --- Provider Management ---
 function addProvider(type) {
-  if (addedProviders.some(function(p) { return p.type === type; })) return;
   var def = PROVIDER_DEFS[type];
   addedProviders.push({ type: type, url: '', apiKey: '', priority: def.defaultPriority || 3, enabled: true, _expanded: true });
   renderProviders();
