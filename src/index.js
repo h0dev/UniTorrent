@@ -61,7 +61,7 @@ const MANIFEST = {
   id: 'com.unitorrent.addon',
   version: '2.0.0',
   name: 'UniTorrent',
-  description: 'Multi-provider Stremio addon: Jackett + Prowlarr + Torrentio + Comet + Peerflix + Jacred + MediaFusion + bitmagnet → TorrServer streaming',
+  description: 'Multi-provider Stremio addon: Jackett + Prowlarr + Torrentio + Comet + Peerflix + Jacred + MediaFusion + bitmagnet + Torznab → TorrServer streaming',
   resources: ['stream'],
   types: ['movie', 'series'],
   idPrefixes: ['tt'],
@@ -100,6 +100,7 @@ function encodeConfig(config) {
   if (config.mediafusionUrl) c.f = { u: config.mediafusionUrl.replace(/\/$/, '') };
   if (config.magnetzUrl) c.z = { u: config.magnetzUrl.replace(/\/$/, '') };
   if (config.bitmagnetUrl) c.b = { u: config.bitmagnetUrl.replace(/\/$/, '') };
+  if (config.torznabUrl) c.n = { u: config.torznabUrl.replace(/\/$/, ''), k: config.torznabApiKey || '' };
   if (config.torrServerUrl) {
     c.s = { u: config.torrServerUrl.replace(/\/$/, '') };
     if (config.torrServerUser || config.torrServerPassword) {
@@ -115,7 +116,7 @@ function encodeConfig(config) {
   if (config.providerOrder) c.r = config.providerOrder;
   // Store priority values (only non-default to save space)
   const pv = {};
-  const priorityCodeMap = [['j','jackettPriority'],['p','prowlarrPriority'],['t','torrentioPriority'],['o','cometPriority'],['e','peerflixPriority'],['a','jacredPriority'],['f','mediafusionPriority'],['z','magnetzPriority'],['b','bitmagnetPriority']];
+  const priorityCodeMap = [['j','jackettPriority'],['p','prowlarrPriority'],['t','torrentioPriority'],['o','cometPriority'],['e','peerflixPriority'],['a','jacredPriority'],['f','mediafusionPriority'],['z','magnetzPriority'],['b','bitmagnetPriority'],['n','torznabPriority']];
   for (const [code, key] of priorityCodeMap) {
     if (config[key] && config[key] !== 3) pv[code] = config[key];
   }
@@ -144,9 +145,10 @@ function decodeConfig(b64) {
     if (d.f && d.f.u) { cfg.mediafusionUrl = d.f.u; }
     if (d.z && d.z.u) { cfg.magnetzUrl = d.z.u; }
     if (d.b && d.b.u) { cfg.bitmagnetUrl = d.b.u; }
+    if (d.n && d.n.u) { cfg.torznabUrl = d.n.u; cfg.torznabApiKey = d.n.k || ''; }
     // Restore priority values from stored config
     if (d.v) {
-      const pvMap = { j: 'jackettPriority', p: 'prowlarrPriority', t: 'torrentioPriority', o: 'cometPriority', e: 'peerflixPriority', a: 'jacredPriority', f: 'mediafusionPriority', z: 'magnetzPriority', b: 'bitmagnetPriority' };
+      const pvMap = { j: 'jackettPriority', p: 'prowlarrPriority', t: 'torrentioPriority', o: 'cometPriority', e: 'peerflixPriority', a: 'jacredPriority', f: 'mediafusionPriority', z: 'magnetzPriority', b: 'bitmagnetPriority', n: 'torznabPriority' };
       for (const [code, val] of Object.entries(d.v)) {
         if (pvMap[code]) cfg[pvMap[code]] = val;
       }
@@ -179,6 +181,8 @@ function decodeConfig(b64) {
       mediafusionUrl: process.env.MEDIAFUSION_URL || '',
       magnetzUrl: process.env.MAGNETZ_URL || '',
       bitmagnetUrl: process.env.BITMAGNET_URL || '',
+      torznabUrl: process.env.TORZNAB_URL || '',
+      torznabApiKey: process.env.TORZNAB_API_KEY || '',
       torrServerUrl: process.env.TORRSERVER_URL || '',
       torrServerUser: process.env.TORRSERVER_USER || '',
       torrServerPassword: process.env.TORRSERVER_PASSWORD || '',
@@ -574,6 +578,19 @@ async function searchBitmagnet(cfg, type, imdbId) {
   return items.sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
 }
 
+// ---- Torznab (generic Torznab-compatible endpoint) ----
+async function searchTorznab(cfg, type, imdbId) {
+  const base = cfg.torznabUrl.replace(/\/+$/, '');
+  const params = new URLSearchParams({ t: 'search', cat: '', q: imdbId, extended: '1' });
+  if (cfg.torznabApiKey) params.set('apikey', cfg.torznabApiKey);
+  const url = `${base}?${params}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(12000) });
+  if (!res.ok) return [];
+  const parsed = torznabParser.parse(await res.text());
+  const items = parseTorznabItems(parsed?.rss?.channel?.item, 'Torznab');
+  return items.sort((a, b) => (b.Seeders || 0) - (a.Seeders || 0));
+}
+
 // ---- Jacred (Jackett-compatible + REST API) ----
 // Tries REST API (/api/v1.0/torrents) first when no API key (jacred-go format).
 // Falls back to Torznab (/api/v2.0/...) when API key is set or REST fails.
@@ -656,6 +673,7 @@ async function handleStream(config, type, id) {
     if (config.mediafusionUrl) { log(`  + MediaFusion: ${config.mediafusionUrl}`); promises.push(searchMediaFusion(config, type, id)); }
     if (config.magnetzUrl) { log(`  + Magnetz: ${config.magnetzUrl}`); promises.push(searchMagnetz(config, type, imdbId)); }
     if (config.bitmagnetUrl) { log(`  + bitmagnet: ${config.bitmagnetUrl}`); promises.push(searchBitmagnet(config, type, imdbId).catch(() => [])); }
+    if (config.torznabUrl) { log(`  + Torznab: ${config.torznabUrl}`); promises.push(searchTorznab(config, type, imdbId).catch(() => [])); }
 
     if (promises.length === 0) {
       log(`  No providers configured → empty`);
@@ -824,6 +842,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
           <option value="mediafusion">MediaFusion</option>
           <option value="magnetz">Magnetz</option>
           <option value="bitmagnet">bitmagnet</option>
+          <option value="torznab">Torznab</option>
         </select>
       </div>
     </div>
@@ -920,6 +939,7 @@ var PROVIDER_DEFS = {
   mediafusion:{ name: 'MediaFusion',code: 'f', fields: [{id:'url',label:'Manifest URL',placeholder:'https://mediafusion.elfhosted.com/manifest.json'}] },
   magnetz:    { name: 'Magnetz',    code: 'z', fields: [{id:'url',label:'Magnetz URL',placeholder:'https://magnetz.eu'}] },
   bitmagnet:  { name: 'bitmagnet',  code: 'b', fields: [{id:'url',label:'bitmagnet URL',placeholder:'http://localhost:3333'}] },
+  torznab:    { name: 'Torznab',    code: 'n', fields: [{id:'url',label:'Torznab API URL',placeholder:'http://localhost:8080/torznab/api'},{id:'apiKey',label:'API Key',placeholder:'Optional — leave empty if public',optional:true}] },
 };
 
 // --- State ---
@@ -1122,11 +1142,11 @@ function copyUrl() {
 
   if (!window.__CONFIG__) return;
   var c = window.__CONFIG__;
-  var urlMap = { jackett:'jackettUrl', prowlarr:'prowlarrUrl', torrentio:'torrentioUrl', comet:'cometUrl', peerflix:'peerflixUrl', jacred:'jacredUrl', mediafusion:'mediafusionUrl', magnetz:'magnetzUrl', bitmagnet:'bitmagnetUrl' };
-  var keyMap = { jackett:'jackettApiKey', prowlarr:'prowlarrApiKey', jacred:'jacredApiKey' };
-  var prioMap = { jackett:'jackettPriority', prowlarr:'prowlarrPriority', torrentio:'torrentioPriority', comet:'cometPriority', peerflix:'peerflixPriority', jacred:'jacredPriority', mediafusion:'mediafusionPriority', magnetz:'magnetzPriority', bitmagnet:'bitmagnetPriority' };
+  var urlMap = { jackett:'jackettUrl', prowlarr:'prowlarrUrl', torrentio:'torrentioUrl', comet:'cometUrl', peerflix:'peerflixUrl', jacred:'jacredUrl', mediafusion:'mediafusionUrl', magnetz:'magnetzUrl', bitmagnet:'bitmagnetUrl', torznab:'torznabUrl' };
+  var keyMap = { jackett:'jackettApiKey', prowlarr:'prowlarrApiKey', jacred:'jacredApiKey', torznab:'torznabApiKey' };
+  var prioMap = { jackett:'jackettPriority', prowlarr:'prowlarrPriority', torrentio:'torrentioPriority', comet:'cometPriority', peerflix:'peerflixPriority', jacred:'jacredPriority', mediafusion:'mediafusionPriority', magnetz:'magnetzPriority', bitmagnet:'bitmagnetPriority', torznab:'torznabPriority' };
 
-  var types = ['jackett','prowlarr','torrentio','comet','peerflix','jacred','mediafusion','magnetz','bitmagnet'];
+  var types = ['jackett','prowlarr','torrentio','comet','peerflix','jacred','mediafusion','magnetz','bitmagnet','torznab'];
   types.forEach(function(type) {
     var url = c[urlMap[type]];
     if (url) {
@@ -1210,6 +1230,8 @@ function configFromQuery(q) {
     maxResults: parseInt(q.maxResults || '5', 10) || 5,
     magnetzUrl: q.magnetzUrl || '',
     bitmagnetUrl: q.bitmagnetUrl || '',
+    torznabUrl: q.torznabUrl || '',
+    torznabApiKey: q.torznabApiKey || '',
   };
 }
 
@@ -1291,6 +1313,9 @@ app.post('/api/generate', (req, res) => {
     magnetzUrl: body.magnetzEnabled ? (body.magnetzUrl || '') : '',
     bitmagnetUrl: body.bitmagnetEnabled ? (body.bitmagnetUrl || '') : '',
     bitmagnetPriority: parseInt(body.bitmagnetPriority) || 3,
+    torznabUrl: body.torznabEnabled ? (body.torznabUrl || '') : '',
+    torznabApiKey: body.torznabEnabled ? (body.torznabApiKey || '') : '',
+    torznabPriority: parseInt(body.torznabPriority) || 3,
     torrServerUrl: body.torrServerUrl || '',
     torrServerUser: body.torrServerUser || '',
     torrServerPassword: body.torrServerPassword || '',
@@ -1473,10 +1498,27 @@ app.get('/api/test/bitmagnet', async (req, res) => {
   }
 });
 
+app.get('/api/test/torznab', async (req, res) => {
+  try {
+    const { url, key } = req.query;
+    if (!url) { res.json({ ok: false, message: 'Missing URL' }); return; }
+    const base = url.replace(/\/+$/, '');
+    const params = new URLSearchParams({ t: 'search', cat: '', q: 'tt0133093', extended: '1' });
+    if (key) params.set('apikey', key);
+    const r = await fetch(`${base}?${params}`, { signal: AbortSignal.timeout(15000) });
+    if (!r.ok) { res.json({ ok: false, message: `HTTP ${r.status}` }); return; }
+    const parsed = torznabParser.parse(await r.text());
+    const items = parseTorznabItems(parsed?.rss?.channel?.item, 'Torznab');
+    res.json({ ok: true, message: `✅ Torznab OK — ${items.length} results for The Matrix` });
+  } catch (e) {
+    res.json({ ok: false, message: e.message });
+  }
+});
+
 // ---- Torrentio-style routes (no UUID, just config) ----
 app.get('/:config/manifest.json', (req, res) => {
   const config = decodeConfig(req.params.config);
-  const hasConfig = !!(config.jackettUrl || config.prowlarrUrl || config.torrentioUrl || config.cometUrl || config.peerflixUrl || config.jacredUrl || config.mediafusionUrl || config.magnetzUrl);
+  const hasConfig = !!(config.jackettUrl || config.prowlarrUrl || config.torrentioUrl || config.cometUrl || config.peerflixUrl || config.jacredUrl || config.mediafusionUrl || config.magnetzUrl || config.bitmagnetUrl || config.torznabUrl);
   res.json(getManifest(!hasConfig));
 });
 app.get('/:config/stream/:type/:id.json', async (req, res) => {
@@ -1500,7 +1542,7 @@ function getManifest(configRequired) {
 
 app.get('/stremio/:uuid/:config/manifest.json', (req, res) => {
   const config = decodeConfig(req.params.config);
-  const hasConfig = !!(config.jackettUrl || config.prowlarrUrl || config.torrentioUrl || config.cometUrl || config.peerflixUrl || config.jacredUrl || config.mediafusionUrl || config.magnetzUrl);
+  const hasConfig = !!(config.jackettUrl || config.prowlarrUrl || config.torrentioUrl || config.cometUrl || config.peerflixUrl || config.jacredUrl || config.mediafusionUrl || config.magnetzUrl || config.bitmagnetUrl || config.torznabUrl);
   res.json(getManifest(!hasConfig));
 });
 
@@ -1524,6 +1566,6 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`  Web UI:   http://0.0.0.0:${PORT}/configure`);
   console.log(`  Manifest: http://0.0.0.0:${PORT}/:config/manifest.json`);
   console.log(`  Example:  http://0.0.0.0:${PORT}/eyJ0Ijp7InUiOiJodHRwczovL3RvcnJlbnRpby5zdHJlbS5mdW4iLCJjIjoiIn0sIm0iOjV9/manifest.json`);
-  console.log(`  Providers: Jackett / Prowlarr / Torrentio / Comet / Jacred / MediaFusion / bitmagnet`);
+  console.log(`  Providers: Jackett / Prowlarr / Torrentio / Comet / Jacred / MediaFusion / bitmagnet / Torznab`);
   console.log('='.repeat(50));
 });
