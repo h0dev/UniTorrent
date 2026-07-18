@@ -969,13 +969,13 @@ function renderProviders() {
     def.fields.forEach(function(f) {
       html += '<div class="form-group">';
       html += '<label>' + f.label + (f.optional ? ' <span style="color:var(--text-dim);font-weight:400">(optional)</span>' : '') + '</label>';
-      html += '<input type="' + (f.id === 'apiKey' ? 'text' : 'url') + '" id="' + p.type + '_' + f.id + '-' + idx + '" placeholder="' + f.placeholder + '" value="' + (p[f.id] || '') + '" oninput="updateProviderField(' + idx + ',\'' + f.id + '\',this.value)">';
+      html += '<input type="' + (f.id === 'apiKey' ? 'text' : 'url') + '" id="' + p.type + '_' + f.id + '-' + idx + '" placeholder="' + f.placeholder + '" value="' + (p[f.id] || '') + '" oninput="updateProviderField(' + idx + ',\\\'' + f.id + '\\\',this.value)">';
       html += '</div>';
     });
     html += '<div style="display:flex;gap:8px;align-items:center">';
-    html += '<button class="btn btn-secondary btn-sm" onclick="testProvider(\'' + p.type + '\',' + idx + ')">Test</button>';
+    html += '<button class="btn btn-secondary btn-sm" onclick="testProvider(\\'' + p.type + '\\',' + idx + ')">Test</button>';
     html += '<div style="margin-left:auto;display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-dim)">';
-    html += 'Priority <input type="number" min="1" max="20" value="' + p.priority + '" style="width:40px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:11px;text-align:center" oninput="updateProviderField(' + idx + ',\'priority\',parseInt(this.value)||3)">';
+    html += 'Priority <input type="number" min="1" max="20" value="' + p.priority + '" style="width:40px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:11px;text-align:center" oninput="updateProviderField(' + idx + ',\\'priority\\',parseInt(this.value)||3)">';
     html += '</div></div>';
     html += '<div class="test-result" id="testResult-' + idx + '"></div>';
     html += '</div>';
@@ -987,10 +987,10 @@ function renderProviders() {
   document.querySelectorAll('#addProviderSelect option').forEach(function(opt) {
     if (opt.value && addedProviders.some(function(p) { return p.type === opt.value; })) {
       opt.disabled = true;
-      opt.textContent = opt.textContent.replace(/ \(added\)/g, '') + ' (added)';
+      opt.textContent = opt.textContent.replace(/ \\(added\\)/g, '') + ' (added)';
     } else {
       opt.disabled = false;
-      opt.textContent = opt.textContent.replace(/ \(added\)/g, '');
+      opt.textContent = opt.textContent.replace(/ \\(added\\)/g, '');
     }
   });
 }
@@ -1048,6 +1048,7 @@ function testProvider(type, idx) {
     mediafusion: '/api/test/mediafusion?url=' + encodeURIComponent(p.url),
     magnetz: '/api/test/magnetz?url=' + encodeURIComponent(p.url),
     bitmagnet: '/api/test/bitmagnet?url=' + encodeURIComponent(p.url),
+    torznab: '/api/test/torznab?url=' + encodeURIComponent(p.url) + '&key=' + encodeURIComponent(p.apiKey||''),
   };
   if (!p.url) { el.className = 'test-result show error'; el.textContent = 'Enter URL'; return; }
   el.className = 'test-result'; el.textContent = 'Testing...';
@@ -1059,7 +1060,7 @@ function testProvider(type, idx) {
 
 // --- Config Collection ---
 function collectConfig() {
-  var providerCodeMap = { jackett:'j', prowlarr:'p', torrentio:'t', comet:'o', peerflix:'e', jacred:'a', mediafusion:'f', magnetz:'z', bitmagnet:'b' };
+  var providerCodeMap = { jackett:'j', prowlarr:'p', torrentio:'t', comet:'o', peerflix:'e', jacred:'a', mediafusion:'f', magnetz:'z', bitmagnet:'b', torznab:'n' };
   var priorities = {};
   addedProviders.forEach(function(p) {
     var code = providerCodeMap[p.type];
