@@ -61,7 +61,7 @@ const MANIFEST = {
   id: 'com.unitorrent.addon',
   version: '2.0.0',
   name: 'UniTorrent',
-  description: 'Multi-provider Stremio addon: Jackett + Prowlarr + Torrentio + Comet + Peerflix + Jacred + MediaFusion + bitmagnet + Torznab → TorrServer streaming',
+  description: 'Multi-provider Stremio addon: Jackett + Prowlarr + Torrentio + Comet + Peerflix + Meteor + Jacred + MediaFusion + bitmagnet + Torznab → TorrServer streaming',
   resources: ['stream'],
   types: ['movie', 'series'],
   idPrefixes: ['tt'],
@@ -96,6 +96,7 @@ function encodeConfig(config) {
   if (config.torrentioEnabled && config.torrentioUrl) c.t = { u: config.torrentioUrl.replace(/\/$/, ''), c: config.torrentioConfig || '' };
   if (config.cometUrl) c.o = { u: config.cometUrl.replace(/\/$/, '') };
   if (config.peerflixUrl) c.e = { u: config.peerflixUrl.replace(/\/$/, '') };
+  if (config.meteorUrl) c.w = { u: config.meteorUrl.replace(/\/$/, '') };
   if (config.jacredUrl) c.a = { u: config.jacredUrl.replace(/\/$/, ''), k: config.jacredApiKey || '' };
   if (config.mediafusionUrl) c.f = { u: config.mediafusionUrl.replace(/\/$/, '') };
   if (config.magnetzUrl) c.z = { u: config.magnetzUrl.replace(/\/$/, '') };
@@ -116,7 +117,7 @@ function encodeConfig(config) {
   if (config.providerOrder) c.r = config.providerOrder;
   // Store priority values (only non-default to save space)
   const pv = {};
-  const priorityCodeMap = [['j','jackettPriority'],['p','prowlarrPriority'],['t','torrentioPriority'],['o','cometPriority'],['e','peerflixPriority'],['a','jacredPriority'],['f','mediafusionPriority'],['z','magnetzPriority'],['b','bitmagnetPriority'],['n','torznabPriority']];
+  const priorityCodeMap = [['j','jackettPriority'],['p','prowlarrPriority'],['t','torrentioPriority'],['o','cometPriority'],['e','peerflixPriority'],['w','meteorPriority'],['a','jacredPriority'],['f','mediafusionPriority'],['z','magnetzPriority'],['b','bitmagnetPriority'],['n','torznabPriority']];
   for (const [code, key] of priorityCodeMap) {
     if (config[key] && config[key] !== 3) pv[code] = config[key];
   }
@@ -141,6 +142,7 @@ function decodeConfig(b64) {
     }
     if (d.o && d.o.u) { cfg.cometUrl = d.o.u; }
     if (d.e && d.e.u) { cfg.peerflixUrl = d.e.u; }
+    if (d.w && d.w.u) { cfg.meteorUrl = d.w.u; }
     if (d.a && d.a.u) { cfg.jacredUrl = d.a.u; cfg.jacredApiKey = d.a.k || ''; }
     if (d.f && d.f.u) { cfg.mediafusionUrl = d.f.u; }
     if (d.z && d.z.u) { cfg.magnetzUrl = d.z.u; }
@@ -148,7 +150,7 @@ function decodeConfig(b64) {
     if (d.n && d.n.u) { cfg.torznabUrl = d.n.u; cfg.torznabApiKey = d.n.k || ''; }
     // Restore priority values from stored config
     if (d.v) {
-      const pvMap = { j: 'jackettPriority', p: 'prowlarrPriority', t: 'torrentioPriority', o: 'cometPriority', e: 'peerflixPriority', a: 'jacredPriority', f: 'mediafusionPriority', z: 'magnetzPriority', b: 'bitmagnetPriority', n: 'torznabPriority' };
+      const pvMap = { j: 'jackettPriority', p: 'prowlarrPriority', t: 'torrentioPriority', o: 'cometPriority', e: 'peerflixPriority', w: 'meteorPriority', a: 'jacredPriority', f: 'mediafusionPriority', z: 'magnetzPriority', b: 'bitmagnetPriority', n: 'torznabPriority' };
       for (const [code, val] of Object.entries(d.v)) {
         if (pvMap[code]) cfg[pvMap[code]] = val;
       }
@@ -176,6 +178,7 @@ function decodeConfig(b64) {
       torrentioUrl: process.env.TORRENTIO_URL || 'https://torrentio.strem.fun',
       torrentioConfig: process.env.TORRENTIO_CONFIG || '',
       cometUrl: process.env.COMET_URL || '',
+      meteorUrl: process.env.METEOR_URL || '',
       jacredUrl: process.env.JACRED_URL || '',
       jacredApiKey: process.env.JACRED_API_KEY || '',
       mediafusionUrl: process.env.MEDIAFUSION_URL || '',
@@ -462,7 +465,7 @@ function stripManifestPath(url) {
 
 // Provider name → config code for priority ordering
 function codeOf(provider) {
-  const map = { Jackett: 'j', Prowlarr: 'p', Torrentio: 't', Comet: 'o', Peerflix: 'e', Jacred: 'a', MediaFusion: 'f', Magnetz: 'z', bitmagnet: 'b' };
+  const map = { Jackett: 'j', Prowlarr: 'p', Torrentio: 't', Comet: 'o', Peerflix: 'e', Meteor: 'w', Jacred: 'a', MediaFusion: 'f', Magnetz: 'z', bitmagnet: 'b', Torznab: 'n' };
   return map[provider] || '';
 }
 
@@ -524,6 +527,25 @@ async function searchMediaFusion(cfg, type, id) {
     MagnetUri: '',
     CategoryDesc: '',
     _provider: 'MediaFusion',
+    _rawStream: s,
+  }));
+}
+
+// ---- Meteor (Stremio addon) ----
+async function searchMeteor(cfg, type, id) {
+  if (!cfg.meteorUrl) return [];
+  const url = `${stripManifestPath(cfg.meteorUrl)}/stream/${type}/${id}.json`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+  if (!res.ok) throw new Error(`Meteor HTTP ${res.status}`);
+  const data = await res.json();
+  return (data.streams || []).filter(s => s.infoHash || s.url).map(s => ({
+    Title: s.title || s.name || '',
+    Seeders: parseInt((s.name || '').match(/S:(\d+)/)?.[1] || '0', 10),
+    Size: s.behaviorHints?.videoSize || 0,
+    InfoHash: s.infoHash || '',
+    MagnetUri: '',
+    CategoryDesc: '',
+    _provider: 'Meteor',
     _rawStream: s,
   }));
 }
@@ -669,6 +691,7 @@ async function handleStream(config, type, id) {
     if (config.torrentioUrl) { log(`  + Torrentio: ${config.torrentioUrl}`); promises.push(searchTorrentio(config, type, id)); }
     if (config.cometUrl) { log(`  + Comet: ${config.cometUrl}`); promises.push(searchComet(config, type, id)); }
     if (config.peerflixUrl) { log(`  + Peerflix: ${config.peerflixUrl}`); promises.push(searchPeerflix(config, type, id)); }
+    if (config.meteorUrl) { log(`  + Meteor: ${config.meteorUrl}`); promises.push(searchMeteor(config, type, id).catch(() => [])); }
     if (config.jacredUrl) { log(`  + Jacred: ${config.jacredUrl}`); promises.push(searchJacred(config, type, imdbId)); }
     if (config.mediafusionUrl) { log(`  + MediaFusion: ${config.mediafusionUrl}`); promises.push(searchMediaFusion(config, type, id)); }
     if (config.magnetzUrl) { log(`  + Magnetz: ${config.magnetzUrl}`); promises.push(searchMagnetz(config, type, imdbId)); }
@@ -838,6 +861,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
           <option value="torrentio">Torrentio</option>
           <option value="comet">Comet</option>
           <option value="peerflix">Peerflix</option>
+          <option value="meteor">Meteor</option>
           <option value="jacred">Jacred</option>
           <option value="mediafusion">MediaFusion</option>
           <option value="magnetz">Magnetz</option>
@@ -935,6 +959,7 @@ var PROVIDER_DEFS = {
   torrentio:  { name: 'Torrentio',  code: 't', fields: [{id:'url',label:'Manifest URL',placeholder:'https://torrentio.strem.fun/manifest.json'}], defaultPriority: 2 },
   comet:      { name: 'Comet',      code: 'o', fields: [{id:'url',label:'Manifest URL',placeholder:'https://comet.feels.legal/manifest.json'}] },
   peerflix:   { name: 'Peerflix',   code: 'e', fields: [{id:'url',label:'Manifest URL',placeholder:'https://peerflix.mov/manifest.json'}] },
+  meteor:     { name: 'Meteor',     code: 'w', fields: [{id:'url',label:'Manifest URL',placeholder:'https://meteorfortheweebs.midnightignite.me/stremio/manifest.json'}] },
   jacred:     { name: 'Jacred',     code: 'a', fields: [{id:'url',label:'Jacred URL',placeholder:'http://192.168.1.100:9120'},{id:'apiKey',label:'API Key',placeholder:'Optional \u2014 REST API used if empty',optional:true}] },
   mediafusion:{ name: 'MediaFusion',code: 'f', fields: [{id:'url',label:'Manifest URL',placeholder:'https://mediafusion.elfhosted.com/manifest.json'}] },
   magnetz:    { name: 'Magnetz',    code: 'z', fields: [{id:'url',label:'Magnetz URL',placeholder:'https://magnetz.eu'}] },
@@ -958,14 +983,10 @@ function renderProviders() {
     html += '<div class="card-header" style="cursor:pointer" onclick="toggleProviderCard(' + idx + ')">';
     html += '<span>' + def.name + '</span>';
     html += '<div style="display:flex;align-items:center;gap:8px">';
-    html += '<span class="badge" id="badge-' + idx + '">' + (p.enabled ? 'On' : 'Off') + '</span>';
+    html += '<label class="toggle ' + (p.enabled ? 'active' : '') + '" id="toggle-' + idx + '" onclick="event.stopPropagation();toggleProvider(' + idx + ')"></label>';
     html += '<button class="btn btn-sm" style="color:var(--error);background:none;border:none;font-size:16px;padding:0 4px" onclick="event.stopPropagation();removeProvider(' + idx + ')">\u2715</button>';
     html += '</div></div>';
     html += '<div class="provider-card" id="card-body-' + idx + '" style="display:' + (p._expanded !== false ? 'block' : 'none') + '">';
-    html += '<div class="provider-header">';
-    html += '<span class="provider-name">' + def.name + '</span>';
-    html += '<label class="toggle ' + (p.enabled ? 'active' : '') + '" id="toggle-' + idx + '" onclick="toggleProvider(' + idx + ')"></label>';
-    html += '</div>';
     def.fields.forEach(function(f) {
       html += '<div class="form-group">';
       html += '<label>' + f.label + (f.optional ? ' <span style="color:var(--text-dim);font-weight:400">(optional)</span>' : '') + '</label>';
@@ -1033,6 +1054,7 @@ function testProvider(type, idx) {
     torrentio: '/api/test/torrentio?url=' + encodeURIComponent(p.url),
     comet: '/api/test/comet?url=' + encodeURIComponent(p.url),
     peerflix: '/api/test/peerflix?url=' + encodeURIComponent(p.url),
+    meteor: '/api/test/meteor?url=' + encodeURIComponent(p.url),
     jacred: '/api/test/jacred?url=' + encodeURIComponent(p.url) + '&key=' + encodeURIComponent(p.apiKey||''),
     mediafusion: '/api/test/mediafusion?url=' + encodeURIComponent(p.url),
     magnetz: '/api/test/magnetz?url=' + encodeURIComponent(p.url),
@@ -1049,7 +1071,7 @@ function testProvider(type, idx) {
 
 // --- Config Collection ---
 function collectConfig() {
-  var providerCodeMap = { jackett:'j', prowlarr:'p', torrentio:'t', comet:'o', peerflix:'e', jacred:'a', mediafusion:'f', magnetz:'z', bitmagnet:'b', torznab:'n' };
+  var providerCodeMap = { jackett:'j', prowlarr:'p', torrentio:'t', comet:'o', peerflix:'e', meteor:'w', jacred:'a', mediafusion:'f', magnetz:'z', bitmagnet:'b', torznab:'n' };
   var priorities = {};
   addedProviders.forEach(function(p) {
     var code = providerCodeMap[p.type];
@@ -1132,11 +1154,11 @@ function copyUrl() {
 
   if (!window.__CONFIG__) return;
   var c = window.__CONFIG__;
-  var urlMap = { jackett:'jackettUrl', prowlarr:'prowlarrUrl', torrentio:'torrentioUrl', comet:'cometUrl', peerflix:'peerflixUrl', jacred:'jacredUrl', mediafusion:'mediafusionUrl', magnetz:'magnetzUrl', bitmagnet:'bitmagnetUrl', torznab:'torznabUrl' };
+  var urlMap = { jackett:'jackettUrl', prowlarr:'prowlarrUrl', torrentio:'torrentioUrl', comet:'cometUrl', peerflix:'peerflixUrl', meteor:'meteorUrl', jacred:'jacredUrl', mediafusion:'mediafusionUrl', magnetz:'magnetzUrl', bitmagnet:'bitmagnetUrl', torznab:'torznabUrl' };
   var keyMap = { jackett:'jackettApiKey', prowlarr:'prowlarrApiKey', jacred:'jacredApiKey', torznab:'torznabApiKey' };
-  var prioMap = { jackett:'jackettPriority', prowlarr:'prowlarrPriority', torrentio:'torrentioPriority', comet:'cometPriority', peerflix:'peerflixPriority', jacred:'jacredPriority', mediafusion:'mediafusionPriority', magnetz:'magnetzPriority', bitmagnet:'bitmagnetPriority', torznab:'torznabPriority' };
+  var prioMap = { jackett:'jackettPriority', prowlarr:'prowlarrPriority', torrentio:'torrentioPriority', comet:'cometPriority', peerflix:'peerflixPriority', meteor:'meteorPriority', jacred:'jacredPriority', mediafusion:'mediafusionPriority', magnetz:'magnetzPriority', bitmagnet:'bitmagnetPriority', torznab:'torznabPriority' };
 
-  var types = ['jackett','prowlarr','torrentio','comet','peerflix','jacred','mediafusion','magnetz','bitmagnet','torznab'];
+  var types = ['jackett','prowlarr','torrentio','comet','peerflix','meteor','jacred','mediafusion','magnetz','bitmagnet','torznab'];
   types.forEach(function(type) {
     var url = c[urlMap[type]];
     if (url) {
@@ -1208,6 +1230,7 @@ function configFromQuery(q) {
     torrentioConfig: q.torrentioConfig || '',
     cometUrl: q.cometUrl || '',
     peerflixUrl: q.peerflixUrl || '',
+    meteorUrl: q.meteorUrl || '',
     jacredUrl: q.jacredUrl || '',
     jacredApiKey: q.jacredApiKey || '',
     mediafusionUrl: q.mediafusionUrl || '',
@@ -1297,6 +1320,8 @@ app.post('/api/generate', (req, res) => {
     torrentioEnabled: !!body.torrentioEnabled,
     cometUrl: body.cometEnabled ? (body.cometUrl || '') : '',
     peerflixUrl: body.peerflixEnabled ? (body.peerflixUrl || '') : '',
+    meteorUrl: body.meteorEnabled ? (body.meteorUrl || '') : '',
+    meteorPriority: parseInt(body.meteorPriority) || 3,
     jacredUrl: body.jacredEnabled ? (body.jacredUrl || '') : '',
     jacredApiKey: body.jacredEnabled ? (body.jacredApiKey || '') : '',
     mediafusionUrl: body.mediafusionEnabled ? (body.mediafusionUrl || '') : '',
@@ -1317,6 +1342,7 @@ app.post('/api/generate', (req, res) => {
     torrentioPriority: parseInt(body.torrentioPriority) || 3,
     cometPriority: parseInt(body.cometPriority) || 3,
     peerflixPriority: parseInt(body.peerflixPriority) || 3,
+    meteorPriority: parseInt(body.meteorPriority) || 3,
     jacredPriority: parseInt(body.jacredPriority) || 3,
     mediafusionPriority: parseInt(body.mediafusionPriority) || 3,
     magnetzPriority: parseInt(body.magnetzPriority) || 3,
@@ -1457,6 +1483,22 @@ app.get('/api/test/peerflix', async (req, res) => {
   }
 });
 
+// ---- API: Test Meteor ----
+app.get('/api/test/meteor', async (req, res) => {
+  try {
+    const { url } = req.query;
+    const r = await fetch(`${stripManifestPath(url)}/stream/movie/tt0133093.json`, {
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!r.ok) { res.json({ ok: false, message: `HTTP ${r.status}` }); return; }
+    const data = await r.json();
+    const count = (data.streams || []).length;
+    res.json({ ok: true, message: `✅ Meteor OK — ${count} streams for The Matrix` });
+  } catch (e) {
+    res.json({ ok: false, message: e.message });
+  }
+});
+
 app.get('/api/test/magnetz', async (req, res) => {
   try {
     const { url } = req.query;
@@ -1508,7 +1550,7 @@ app.get('/api/test/torznab', async (req, res) => {
 // ---- Torrentio-style routes (no UUID, just config) ----
 app.get('/:config/manifest.json', (req, res) => {
   const config = decodeConfig(req.params.config);
-  const hasConfig = !!(config.jackettUrl || config.prowlarrUrl || config.torrentioUrl || config.cometUrl || config.peerflixUrl || config.jacredUrl || config.mediafusionUrl || config.magnetzUrl || config.bitmagnetUrl || config.torznabUrl);
+  const hasConfig = !!(config.jackettUrl || config.prowlarrUrl || config.torrentioUrl || config.cometUrl || config.peerflixUrl || config.meteorUrl || config.jacredUrl || config.mediafusionUrl || config.magnetzUrl || config.bitmagnetUrl || config.torznabUrl);
   res.json(getManifest(!hasConfig));
 });
 app.get('/:config/stream/:type/:id.json', async (req, res) => {
@@ -1532,7 +1574,7 @@ function getManifest(configRequired) {
 
 app.get('/stremio/:uuid/:config/manifest.json', (req, res) => {
   const config = decodeConfig(req.params.config);
-  const hasConfig = !!(config.jackettUrl || config.prowlarrUrl || config.torrentioUrl || config.cometUrl || config.peerflixUrl || config.jacredUrl || config.mediafusionUrl || config.magnetzUrl || config.bitmagnetUrl || config.torznabUrl);
+  const hasConfig = !!(config.jackettUrl || config.prowlarrUrl || config.torrentioUrl || config.cometUrl || config.peerflixUrl || config.meteorUrl || config.jacredUrl || config.mediafusionUrl || config.magnetzUrl || config.bitmagnetUrl || config.torznabUrl);
   res.json(getManifest(!hasConfig));
 });
 
@@ -1556,6 +1598,6 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`  Web UI:   http://0.0.0.0:${PORT}/configure`);
   console.log(`  Manifest: http://0.0.0.0:${PORT}/:config/manifest.json`);
   console.log(`  Example:  http://0.0.0.0:${PORT}/eyJ0Ijp7InUiOiJodHRwczovL3RvcnJlbnRpby5zdHJlbS5mdW4iLCJjIjoiIn0sIm0iOjV9/manifest.json`);
-  console.log(`  Providers: Jackett / Prowlarr / Torrentio / Comet / Jacred / MediaFusion / bitmagnet / Torznab`);
+  console.log(`  Providers: Jackett / Prowlarr / Torrentio / Comet / Peerflix / Meteor / Jacred / MediaFusion / bitmagnet / Torznab`);
   console.log('='.repeat(50));
 });
